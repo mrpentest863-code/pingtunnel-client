@@ -390,7 +390,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
         title: const Text('Add connection'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: 'Collez une URL encodée ou tapez la phrase secrète'),
+          decoration: const InputDecoration(hintText: 'paste URL please'),
           minLines: 1,
           maxLines: 3,
         ),
@@ -413,7 +413,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     if (text.trim().startsWith('princ://encoded/')) {
       _addEntryFromUri(text.trim());
     } else {
-      _showMessage('Entrée invalide : seule une URL encodée ou la phrase secrète est acceptée');
+      _showMessage('invalid');
     }
   }
 
@@ -592,25 +592,25 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('HWID de cet appareil'),
+        title: const Text('HWID'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SelectableText(hwid),
             const SizedBox(height: 8),
-            Text('Ce HWID est unique à votre appareil.', style: Theme.of(context).textTheme.bodySmall),
+            Text('your HWID.', style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('close')),
           FilledButton.icon(
             onPressed: () {
               Clipboard.setData(ClipboardData(text: hwid));
               Navigator.pop(context);
-              _showMessage('HWID copié');
+              _showMessage('HWID copie');
             },
             icon: const Icon(Icons.copy),
-            label: const Text('Copier'),
+            label: const Text('Copie'),
           ),
         ],
       ),
@@ -628,9 +628,9 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Connections'),
+        title: const Text('PRINC LTE VPN'),
         actions: [
-          IconButton(icon: const Icon(Icons.devices), tooltip: 'Mon HWID', onPressed: _showHwidDialog),
+          IconButton(icon: const Icon(Icons.devices), tooltip: 'HWID', onPressed: _showHwidDialog),
           PopupMenuButton<ThemeMode>(
             initialValue: widget.themeMode,
             tooltip: 'Theme',
@@ -730,7 +730,7 @@ class _EmptyState extends StatelessWidget {
         const SizedBox(height: 16),
         Text('No connections yet', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        Text('Collez votre URL encodée ici.', style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+        Text('paste your URL here.', style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
         const SizedBox(height: 16),
         OutlinedButton.icon(onPressed: onPaste, icon: const Icon(Icons.content_paste), label: const Text('Paste URI')),
       ]),
@@ -904,7 +904,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     if (_entry.config.hwid != null && _entry.config.hwid!.isNotEmpty) {
       final deviceHwid = await getDeviceHwid();
       if (_entry.config.hwid != deviceHwid) {
-        setState(() => _error = 'HWID non autorisé pour cet appareil');
+        setState(() => _error = 'HWID no valid');
         return;
       }
     }
@@ -941,7 +941,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
 
   Future<void> _copyUri() async {
     await Clipboard.setData(ClipboardData(text: _entry.uri));
-    _showMessage('URI encodée copiée');
+    _showMessage('URI copie');
   }
 
   TunnelConfig? _buildConfigFromFields() {
@@ -984,8 +984,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final logLines = _isActive ? widget.controller.logBuffer.lines : <String>[];
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.locked ? 'Connexion sécurisée' : _entry.config.serverHost),
-        actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copier URI encodée')],
+        title: Text(widget.locked ? 'PRINC LTE VPN' : _entry.config.serverHost),
+        actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copie URI encode')],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
