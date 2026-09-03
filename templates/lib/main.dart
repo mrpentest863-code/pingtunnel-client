@@ -529,7 +529,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
           content: TextField(
             controller: controller,
             decoration: const InputDecoration(
-              hintText: 'tns://host?key=123&lport=1080&mode=vpn',
+              hintText: 'princ://host?key=123&lport=1080&mode=vpn',
             ),
             minLines: 1,
             maxLines: 3,
@@ -984,7 +984,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'please paste your TNS url here.',
+              'please paste your PRINC url here.',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
