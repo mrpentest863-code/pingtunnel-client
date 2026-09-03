@@ -529,7 +529,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
           content: TextField(
             controller: controller,
             decoration: const InputDecoration(
-              hintText: 'princ://host?key=123&lport=1080&mode=vpn',
+              hintText: 'tns://host?key=123&lport=1080&mode=vpn',
             ),
             minLines: 1,
             maxLines: 3,
