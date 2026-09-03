@@ -166,6 +166,12 @@ String buildConnectionUri(TunnelConfig config) {
       TunnelMode.proxyPerApp => 'proxy_per_app',
     },
   };
+  if (config.username != null && config.username!.isNotEmpty) {
+    params['user'] = config.username!;
+  }
+  if (config.password != null && config.password!.isNotEmpty) {
+    params['pass'] = config.password!;
+  }
   if (config.encryptMode == null && config.key != null) {
     params['key'] = config.key.toString();
   }
@@ -529,7 +535,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
           content: TextField(
             controller: controller,
             decoration: const InputDecoration(
-              hintText: 'princ://host?key=123&lport=1080&mode=vpn',
+              hintText: 'princ://host?user=username&pass=password&lport=1080&mode=vpn',
             ),
             minLines: 1,
             maxLines: 3,
@@ -1164,6 +1170,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   late ConnectionEntry _entry;
   late final TextEditingController _hostController;
   late final TextEditingController _keyController;
+  late final TextEditingController _usernameController;
+  late final TextEditingController _passwordController;
   late final TextEditingController _localPortController;
   late final TextEditingController _encryptKeyController;
   late TunnelMode _mode;
@@ -1181,6 +1189,12 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _keyController = TextEditingController(
       text: _entry.config.key?.toString() ?? '',
     );
+    _usernameController = TextEditingController(
+      text: _entry.config.username ?? '',
+    );
+    _passwordController = TextEditingController(
+      text: _entry.config.password ?? '',
+    );
     _localPortController = TextEditingController(
       text: _entry.config.localSocksPort.toString(),
     );
@@ -1191,6 +1205,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _proxyPerAppPackages = [..._entry.config.proxyPerAppPackages]..sort();
     _hostController.addListener(_markDirty);
     _keyController.addListener(_markDirty);
+    _usernameController.addListener(_markDirty);
+    _passwordController.addListener(_markDirty);
     _localPortController.addListener(_markDirty);
     _encryptKeyController.addListener(_markDirty);
     _startUiTimer();
@@ -1201,6 +1217,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _uiTimer?.cancel();
     _hostController.dispose();
     _keyController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
     _localPortController.dispose();
     _encryptKeyController.dispose();
     super.dispose();
@@ -1531,6 +1549,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final host = _hostController.text.trim();
     final keyText = _keyController.text.trim();
     final key = keyText.isEmpty ? null : int.tryParse(keyText);
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text.trim();
     final localPort = _parsePort(_localPortController.text.trim());
     final encryptMode = _encryptMode == 'none' ? null : _encryptMode;
     final encryptKey = _encryptKeyController.text.trim().isEmpty
@@ -1540,7 +1560,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     if (host.isEmpty || localPort == null) {
       return null;
     }
-    if (_encryptMode == 'none' && key == null) {
+    if (_encryptMode == 'none' && key == null && 
+        (username.isEmpty || password.isEmpty)) {
       return null;
     }
     if (_encryptMode != 'none' && encryptKey == null) {
@@ -1558,6 +1579,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
       serverPort: null,
       localSocksPort: localPort,
       key: effectiveKey,
+      username: username.isEmpty ? null : username,
+      password: password.isEmpty ? null : password,
       mode: _mode,
       encryptMode: encryptMode,
       encryptKey: encryptKey,
@@ -1623,6 +1646,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
               formKey: _formKey,
               hostController: _hostController,
               keyController: _keyController,
+              usernameController: _usernameController,
+              passwordController: _passwordController,
               localPortController: _localPortController,
               encryptKeyController: _encryptKeyController,
               mode: _mode,
@@ -1832,6 +1857,8 @@ class _DetailsFormCard extends StatelessWidget {
     required this.formKey,
     required this.hostController,
     required this.keyController,
+    required this.usernameController,
+    required this.passwordController,
     required this.localPortController,
     required this.encryptKeyController,
     required this.mode,
@@ -1849,6 +1876,8 @@ class _DetailsFormCard extends StatelessWidget {
   final GlobalKey<FormState> formKey;
   final TextEditingController hostController;
   final TextEditingController keyController;
+  final TextEditingController usernameController;
+  final TextEditingController passwordController;
   final TextEditingController localPortController;
   final TextEditingController encryptKeyController;
   final TunnelMode mode;
@@ -1988,15 +2017,65 @@ class _DetailsFormCard extends StatelessWidget {
               ],
               const SizedBox(height: 12),
               TextFormField(
+                controller: usernameController,
+                enabled: !readOnly && encryptMode == 'none',
+                decoration: const InputDecoration(
+                  labelText: 'Username',
+                  prefixIcon: Icon(Icons.person),
+                ),
+                validator: (value) {
+                  if (encryptMode != 'none') return null;
+                  final username = value?.trim() ?? '';
+                  final password = passwordController.text.trim();
+                  final keyText = keyController.text.trim();
+                  if (keyText.isEmpty && 
+                      (username.isEmpty || password.isEmpty)) {
+                    return 'Username required (or use key)';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: passwordController,
+                enabled: !readOnly && encryptMode == 'none',
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Password',
+                  prefixIcon: Icon(Icons.lock),
+                ),
+                validator: (value) {
+                  if (encryptMode != 'none') return null;
+                  final password = value?.trim() ?? '';
+                  final username = usernameController.text.trim();
+                  final keyText = keyController.text.trim();
+                  if (keyText.isEmpty && 
+                      (username.isEmpty || password.isEmpty)) {
+                    return 'Password required (or use key)';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
                 controller: keyController,
                 enabled: !readOnly && encryptMode == 'none',
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Key'),
+                decoration: const InputDecoration(
+                  labelText: 'Key (legacy)',
+                ),
                 validator: (value) {
                   if (encryptMode != 'none') return null;
                   final text = value?.trim() ?? '';
-                  if (text.isEmpty) return 'Key is required';
-                  if (int.tryParse(text) == null) return 'Key must be a number';
+                  final username = usernameController.text.trim();
+                  final password = passwordController.text.trim();
+                  if (text.isEmpty && 
+                      (username.isEmpty || password.isEmpty)) {
+                    return 'Key required (or use username/password)';
+                  }
+                  if (text.isNotEmpty && int.tryParse(text) == null) {
+                    return 'Key must be a number';
+                  }
                   return null;
                 },
               ),
