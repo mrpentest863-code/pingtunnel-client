@@ -14,7 +14,6 @@ on:
 jobs:
   build:
     name: build-${{ matrix.target }}
-    if: ${{ matrix.target != 'android-ci' || !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -107,6 +106,15 @@ jobs:
           ./scripts/bootstrap_flutter.sh
           (cd app && flutter build apk --debug)
 
+      # ⬇️ NOUVEAU : Upload de l'APK Android
+      - name: Upload Android APK
+        if: matrix.target == 'android-ci'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pingtunnel-android-debug
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
       - name: Zip Windows bundles for release assets
         if: matrix.target == 'windows'
         shell: pwsh
@@ -119,7 +127,7 @@ jobs:
             Compress-Archive -Path "$($_.FullName)\*" -DestinationPath $zipPath
           }
 
-      - name: Upload artifacts
+      - name: Upload artifacts (Linux / Windows)
         if: matrix.target != 'android-ci'
         uses: actions/upload-artifact@v4
         with:
