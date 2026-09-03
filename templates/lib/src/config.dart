@@ -96,8 +96,8 @@ class TunnelConfig {
 
   static TunnelConfig parse(String uriText) {
     final uri = Uri.parse(uriText.trim());
-    if (uri.scheme != 'princ') {
-      throw const FormatException('URI scheme must be princ://');
+    if (uri.scheme != 'tns') {
+      throw const FormatException('URI scheme must be tns://');
     }
 
     String host = uri.host;
