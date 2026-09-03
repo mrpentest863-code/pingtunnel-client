@@ -6,6 +6,8 @@ class TunnelConfig {
     this.serverPort,
     required this.localSocksPort,
     this.key,
+    this.username,
+    this.password,
     required this.mode,
     this.encryptMode,
     this.encryptKey,
@@ -19,6 +21,8 @@ class TunnelConfig {
   final int? serverPort;
   final int localSocksPort;
   final int? key;
+  final String? username;
+  final String? password;
   final TunnelMode mode;
   final String? encryptMode;
   final String? encryptKey;
@@ -32,6 +36,8 @@ class TunnelConfig {
     int? serverPort,
     int? localSocksPort,
     int? key,
+    String? username,
+    String? password,
     TunnelMode? mode,
     String? encryptMode,
     String? encryptKey,
@@ -45,6 +51,8 @@ class TunnelConfig {
       serverPort: serverPort ?? this.serverPort,
       localSocksPort: localSocksPort ?? this.localSocksPort,
       key: key ?? this.key,
+      username: username ?? this.username,
+      password: password ?? this.password,
       mode: mode ?? this.mode,
       encryptMode: encryptMode ?? this.encryptMode,
       encryptKey: encryptKey ?? this.encryptKey,
@@ -80,6 +88,8 @@ class TunnelConfig {
       'serverPort': serverPort,
       'localSocksPort': localSocksPort,
       'key': key,
+      'username': username,
+      'password': password,
       'mode': switch (mode) {
         TunnelMode.proxy => 'proxy',
         TunnelMode.vpn => 'vpn',
@@ -111,6 +121,8 @@ class TunnelConfig {
     final params = uri.queryParameters;
     final keyText = params['key'] ?? '';
     final key = keyText.isEmpty ? null : int.tryParse(keyText);
+    final username = params['user'] ?? params['username'];
+    final password = params['pass'] ?? params['password'];
 
     final localPort =
         int.tryParse(params['lport'] ?? params['local_port'] ?? '') ?? 1080;
@@ -156,8 +168,9 @@ class TunnelConfig {
     final encryptKey =
         params['encrypt-key'] ?? params['encrypt_key'] ?? params['encryptKey'];
 
-    if (encryptMode == null && key == null) {
-      throw const FormatException('Missing key');
+    if (encryptMode == null && key == null && 
+        (username == null || username.isEmpty || password == null || password.isEmpty)) {
+      throw const FormatException('Missing key or username/password');
     }
     if (encryptMode != null && (encryptKey == null || encryptKey.isEmpty)) {
       throw const FormatException('Missing encrypt_key');
@@ -171,6 +184,8 @@ class TunnelConfig {
       serverPort: serverPort,
       localSocksPort: localPort,
       key: key,
+      username: username?.isNotEmpty == true ? username : null,
+      password: password?.isNotEmpty == true ? password : null,
       mode: mode,
       encryptMode: encryptMode,
       encryptKey: encryptKey,
