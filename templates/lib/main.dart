@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,6 +26,39 @@ String _shortGitSha(String value) =>
 
 String get _buildLabel =>
     'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
+
+// Fonction pour obtenir le HWID unique de l'appareil
+Future<String> getDeviceHwid() async {
+  final deviceInfo = DeviceInfoPlugin();
+  
+  try {
+    if (Platform.isAndroid) {
+      final android = await deviceInfo.androidInfo;
+      return 'HWID-ANDROID-${android.id}';
+    } else if (Platform.isIOS) {
+      final ios = await deviceInfo.iosInfo;
+      return 'HWID-IOS-${ios.identifierForVendor ?? 'unknown'}';
+    } else if (Platform.isLinux) {
+      try {
+        final file = File('/etc/machine-id');
+        final machineId = file.readAsStringSync().trim();
+        if (machineId.isNotEmpty) {
+          return 'HWID-LINUX-$machineId';
+        }
+      } catch (_) {}
+      final info = await deviceInfo.linuxInfo;
+      return 'HWID-LINUX-${info.machineId ?? 'unknown'}';
+    } else if (Platform.isWindows) {
+      final info = await deviceInfo.windowsInfo;
+      return 'HWID-WINDOWS-${info.deviceId}';
+    } else if (Platform.isMacOS) {
+      final info = await deviceInfo.macOsInfo;
+      return 'HWID-MACOS-${info.systemGUID ?? 'unknown'}';
+    }
+  } catch (_) {}
+  
+  return 'HWID-UNKNOWN';
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -158,38 +192,8 @@ typedef SaveConnection =
     void Function(ConnectionEntry entry, {bool showMessage});
 
 String buildConnectionUri(TunnelConfig config) {
-  final params = <String, String>{
-    'lport': config.localSocksPort.toString(),
-    'mode': switch (config.mode) {
-      TunnelMode.proxy => 'proxy',
-      TunnelMode.vpn => 'vpn',
-      TunnelMode.proxyPerApp => 'proxy_per_app',
-    },
-  };
-  if (config.username != null && config.username!.isNotEmpty) {
-    params['user'] = config.username!;
-  }
-  if (config.password != null && config.password!.isNotEmpty) {
-    params['pass'] = config.password!;
-  }
-  if (config.encryptMode == null && config.key != null) {
-    params['key'] = config.key.toString();
-  }
-  if (config.encryptMode != null && config.encryptMode!.isNotEmpty) {
-    params['encrypt'] = config.encryptMode!;
-    if (config.encryptKey != null && config.encryptKey!.isNotEmpty) {
-      params['encrypt_key'] = config.encryptKey!;
-    }
-  }
-  if (config.proxyPerAppPackages.isNotEmpty) {
-    final sortedPackages = [...config.proxyPerAppPackages]..sort();
-    params['apps'] = sortedPackages.join(',');
-  }
-  return Uri(
-    scheme: 'pingtunnel',
-    host: config.serverHost,
-    queryParameters: params,
-  ).toString();
+  final encoded = config.encode();
+  return 'princ://encoded/$encoded';
 }
 
 class ConnectionListPage extends StatefulWidget {
@@ -535,7 +539,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
           content: TextField(
             controller: controller,
             decoration: const InputDecoration(
-              hintText: 'princ://host?user=username&pass=password&lport=1080&mode=vpn',
+              hintText: 'Collez votre URL encodée ici',
             ),
             minLines: 1,
             maxLines: 3,
@@ -657,6 +661,15 @@ class _ConnectionListPageState extends State<ConnectionListPage>
       _showMessage('Select a connection first');
       return;
     }
+    
+    if (entry.config.hwid != null && entry.config.hwid!.isNotEmpty) {
+      final deviceHwid = await getDeviceHwid();
+      if (entry.config.hwid != deviceHwid) {
+        _showMessage('HWID non autorisé pour cet appareil');
+        return;
+      }
+    }
+    
     try {
       if (_activeId != null && _activeId != entry.id) {
         await _controller.stop();
@@ -990,7 +1003,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'please paste your PRINC url here.',
+              'Collez votre URL encodée ici.',
               style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
@@ -1172,6 +1185,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   late final TextEditingController _keyController;
   late final TextEditingController _usernameController;
   late final TextEditingController _passwordController;
+  late final TextEditingController _hwidController;
   late final TextEditingController _localPortController;
   late final TextEditingController _encryptKeyController;
   late TunnelMode _mode;
@@ -1195,6 +1209,9 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _passwordController = TextEditingController(
       text: _entry.config.password ?? '',
     );
+    _hwidController = TextEditingController(
+      text: _entry.config.hwid ?? '',
+    );
     _localPortController = TextEditingController(
       text: _entry.config.localSocksPort.toString(),
     );
@@ -1207,6 +1224,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _keyController.addListener(_markDirty);
     _usernameController.addListener(_markDirty);
     _passwordController.addListener(_markDirty);
+    _hwidController.addListener(_markDirty);
     _localPortController.addListener(_markDirty);
     _encryptKeyController.addListener(_markDirty);
     _startUiTimer();
@@ -1219,6 +1237,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _keyController.dispose();
     _usernameController.dispose();
     _passwordController.dispose();
+    _hwidController.dispose();
     _localPortController.dispose();
     _encryptKeyController.dispose();
     super.dispose();
@@ -1473,6 +1492,17 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   Future<void> _connect() async {
     final applied = await _applyEditsIfNeeded();
     if (!applied) return;
+    
+    if (_entry.config.hwid != null && _entry.config.hwid!.isNotEmpty) {
+      final deviceHwid = await getDeviceHwid();
+      if (_entry.config.hwid != deviceHwid) {
+        setState(() {
+          _error = 'HWID non autorisé pour cet appareil';
+        });
+        return;
+      }
+    }
+    
     setState(() {
       _error = null;
     });
@@ -1535,7 +1565,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
 
   Future<void> _copyUri() async {
     await Clipboard.setData(ClipboardData(text: _entry.uri));
-    _showMessage('URI copied');
+    _showMessage('URI encodée copiée');
   }
 
   int? _parsePort(String input, {bool optional = false}) {
@@ -1551,6 +1581,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final key = keyText.isEmpty ? null : int.tryParse(keyText);
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
+    final hwid = _hwidController.text.trim();
     final localPort = _parsePort(_localPortController.text.trim());
     final encryptMode = _encryptMode == 'none' ? null : _encryptMode;
     final encryptKey = _encryptKeyController.text.trim().isEmpty
@@ -1581,6 +1612,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
       key: effectiveKey,
       username: username.isEmpty ? null : username,
       password: password.isEmpty ? null : password,
+      hwid: hwid.isEmpty ? null : hwid,
       mode: _mode,
       encryptMode: encryptMode,
       encryptKey: encryptKey,
@@ -1648,6 +1680,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
               keyController: _keyController,
               usernameController: _usernameController,
               passwordController: _passwordController,
+              hwidController: _hwidController,
               localPortController: _localPortController,
               encryptKeyController: _encryptKeyController,
               mode: _mode,
@@ -1859,6 +1892,7 @@ class _DetailsFormCard extends StatelessWidget {
     required this.keyController,
     required this.usernameController,
     required this.passwordController,
+    required this.hwidController,
     required this.localPortController,
     required this.encryptKeyController,
     required this.mode,
@@ -1878,6 +1912,7 @@ class _DetailsFormCard extends StatelessWidget {
   final TextEditingController keyController;
   final TextEditingController usernameController;
   final TextEditingController passwordController;
+  final TextEditingController hwidController;
   final TextEditingController localPortController;
   final TextEditingController encryptKeyController;
   final TunnelMode mode;
@@ -2055,6 +2090,39 @@ class _DetailsFormCard extends StatelessWidget {
                   }
                   return null;
                 },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: hwidController,
+                enabled: !readOnly,
+                decoration: const InputDecoration(
+                  labelText: 'HWID Autorisé (optionnel)',
+                  prefixIcon: Icon(Icons.devices),
+                  hintText: 'Laisser vide pour tous les appareils',
+                ),
+              ),
+              const SizedBox(height: 12),
+              Card(
+                child: FutureBuilder<String>(
+                  future: getDeviceHwid(),
+                  builder: (context, snapshot) {
+                    final hwid = snapshot.data ?? 'Chargement...';
+                    return ListTile(
+                      leading: Icon(Icons.info, color: Theme.of(context).colorScheme.primary),
+                      title: Text('HWID de cet appareil'),
+                      subtitle: SelectableText(hwid),
+                      trailing: IconButton(
+                        icon: Icon(Icons.copy),
+                        onPressed: () {
+                          Clipboard.setData(ClipboardData(text: hwid));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('HWID copié')),
+                          );
+                        },
+                      ),
+                    );
+                  },
+                ),
               ),
               const SizedBox(height: 12),
               TextFormField(
