@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -27,37 +29,42 @@ String _shortGitSha(String value) =>
 String get _buildLabel =>
     'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
-// Fonction pour obtenir le HWID unique de l'appareil
+// Phrase secrète pour ouvrir le formulaire de création
+const String _secretPhrase = "respire";
+
 Future<String> getDeviceHwid() async {
   final deviceInfo = DeviceInfoPlugin();
-  
+  String rawId = '';
+
   try {
     if (Platform.isAndroid) {
       final android = await deviceInfo.androidInfo;
-      return 'HWID-ANDROID-${android.id}';
+      rawId = android.id;
     } else if (Platform.isIOS) {
       final ios = await deviceInfo.iosInfo;
-      return 'HWID-IOS-${ios.identifierForVendor ?? 'unknown'}';
+      rawId = ios.identifierForVendor ?? 'unknown';
     } else if (Platform.isLinux) {
       try {
         final file = File('/etc/machine-id');
-        final machineId = file.readAsStringSync().trim();
-        if (machineId.isNotEmpty) {
-          return 'HWID-LINUX-$machineId';
-        }
-      } catch (_) {}
-      final info = await deviceInfo.linuxInfo;
-      return 'HWID-LINUX-${info.machineId ?? 'unknown'}';
+        rawId = file.readAsStringSync().trim();
+      } catch (_) {
+        final info = await deviceInfo.linuxInfo;
+        rawId = info.machineId ?? 'unknown';
+      }
     } else if (Platform.isWindows) {
       final info = await deviceInfo.windowsInfo;
-      return 'HWID-WINDOWS-${info.deviceId}';
+      rawId = info.deviceId;
     } else if (Platform.isMacOS) {
       final info = await deviceInfo.macOsInfo;
-      return 'HWID-MACOS-${info.systemGUID ?? 'unknown'}';
+      rawId = info.systemGUID ?? 'unknown';
     }
-  } catch (_) {}
-  
-  return 'HWID-UNKNOWN';
+  } catch (_) {
+    rawId = 'unknown';
+  }
+
+  final bytes = utf8.encode(rawId);
+  final digest = sha256.convert(bytes);
+  return digest.toString().substring(0, 32);
 }
 
 Future<void> main() async {
@@ -179,13 +186,18 @@ class _PingtunnelAppState extends State<PingtunnelApp> {
 }
 
 class ConnectionEntry {
-  ConnectionEntry({required this.uri, required this.config});
+  ConnectionEntry({
+    required this.uri,
+    required this.config,
+    this.locked = false,
+  });
 
   final String uri;
   final TunnelConfig config;
+  final bool locked;
 
   String get id => uri;
-  String get title => config.serverHost;
+  String get title => config.serverHost.isEmpty ? 'Connexion sécurisée' : config.serverHost;
 }
 
 typedef SaveConnection =
@@ -396,6 +408,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     final updated = ConnectionEntry(
       uri: buildConnectionUri(updatedConfig),
       config: updatedConfig,
+      locked: target.locked,
     );
     _updateEntry(target, updated, showMessage: false);
     _selectEntry(updated);
@@ -456,7 +469,8 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     for (final uri in uris) {
       try {
         final config = TunnelConfig.parse(uri);
-        loaded.add(ConnectionEntry(uri: uri, config: config));
+        final locked = uri.startsWith('princ://encoded/');
+        loaded.add(ConnectionEntry(uri: uri, config: config, locked: locked));
       } catch (_) {
         continue;
       }
@@ -518,11 +532,11 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     if (text == null || text.isEmpty) {
       final result = await _showAddDialog();
       if (result != null && result.isNotEmpty) {
-        _addEntryFromUri(result);
+        _handleAddText(result);
       }
       return;
     }
-    _addEntryFromUri(text);
+    _handleAddText(text);
   }
 
   Future<String?> _showAddDialog({
@@ -539,7 +553,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
           content: TextField(
             controller: controller,
             decoration: const InputDecoration(
-              hintText: 'Collez votre URL encodée ici',
+              hintText: 'Collez une URL encodée ou tapez la phrase secrète',
             ),
             minLines: 1,
             maxLines: 3,
@@ -561,9 +575,38 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     return result;
   }
 
+  void _handleAddText(String text) {
+    if (text.trim() == _secretPhrase) {
+      // Créer une configuration vide non verrouillée
+      final config = TunnelConfig(
+        serverHost: '',
+        localSocksPort: 1080,
+        mode: TunnelMode.proxy,
+      );
+      final entry = ConnectionEntry(
+        uri: '',
+        config: config,
+        locked: false,
+      );
+      _openDetails(entry);
+      return;
+    }
+
+    // Seules les URL encodées sont acceptées
+    if (text.trim().startsWith('princ://encoded/')) {
+      _addEntryFromUri(text.trim());
+    } else {
+      _showMessage('Entrée invalide : seule une URL encodée ou la phrase secrète est acceptée');
+    }
+  }
+
   void _addEntryFromUri(String uriText) {
     try {
+      if (!uriText.startsWith('princ://encoded/')) {
+        throw const FormatException('Only encoded URIs are allowed');
+      }
       final config = TunnelConfig.parse(uriText);
+      final locked = true;
       final existingIndex = _entries.indexWhere(
         (entry) => entry.uri == uriText,
       );
@@ -573,7 +616,11 @@ class _ConnectionListPageState extends State<ConnectionListPage>
           _entries.insert(0, entry);
           _selectedId = entry.id;
         } else {
-          final entry = ConnectionEntry(uri: uriText, config: config);
+          final entry = ConnectionEntry(
+            uri: uriText,
+            config: config,
+            locked: locked,
+          );
           _entries.insert(0, entry);
           _selectedId = entry.id;
         }
@@ -608,6 +655,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
           },
           onSave: (updated, {showMessage = true}) =>
               _updateEntry(entry, updated, showMessage: showMessage),
+          locked: entry.locked,
         ),
       ),
     );
@@ -622,25 +670,22 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     bool showMessage = true,
   }) {
     final existingIndex = _entries.indexWhere(
-      (item) => item.uri == updated.uri,
+      (item) => item.id == original.id,
     );
     setState(() {
-      final index = _entries.indexWhere((item) => item.id == original.id);
-      final duplicateId = (existingIndex >= 0 && existingIndex != index)
-          ? _entries[existingIndex].id
-          : null;
-      if (index >= 0) {
-        _entries[index] = updated;
+      if (existingIndex >= 0) {
+        _entries[existingIndex] = updated;
+      } else {
+        _entries.insert(0, updated);
+        _selectedId = updated.id;
       }
-      if (duplicateId != null) {
-        _entries.removeWhere((item) => item.id == duplicateId);
-        if (_selectedId == duplicateId) {
-          _selectedId = updated.id;
-        }
-        if (_activeId == duplicateId) {
-          _activeId = updated.id;
-        }
+
+      final duplicates = _entries.where((e) => e.id == updated.id).toList();
+      if (duplicates.length > 1) {
+        final keep = duplicates.first;
+        _entries.removeWhere((e) => e.id == updated.id && e != keep);
       }
+
       if (_selectedId == original.id) {
         _selectedId = updated.id;
       }
@@ -651,7 +696,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     _persistConnections();
     _scheduleLinuxTrayRefresh();
     if (showMessage) {
-      _showMessage('Connection updated');
+      _showMessage('Connection saved');
     }
   }
 
@@ -661,7 +706,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
       _showMessage('Select a connection first');
       return;
     }
-    
+
     if (entry.config.hwid != null && entry.config.hwid!.isNotEmpty) {
       final deviceHwid = await getDeviceHwid();
       if (entry.config.hwid != deviceHwid) {
@@ -669,7 +714,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
         return;
       }
     }
-    
+
     try {
       if (_activeId != null && _activeId != entry.id) {
         await _controller.stop();
@@ -779,6 +824,43 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     _scheduleLinuxTrayRefresh();
   }
 
+  Future<void> _showHwidDialog() async {
+    final hwid = await getDeviceHwid();
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('HWID de cet appareil'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SelectableText(hwid),
+            const SizedBox(height: 8),
+            Text(
+              'Ce HWID est unique à votre appareil.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fermer'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: hwid));
+              Navigator.pop(context);
+              _showMessage('HWID copié');
+            },
+            icon: const Icon(Icons.copy),
+            label: const Text('Copier'),
+          ),
+        ],
+      ),
+    );
+  }
+
   IconData _themeModeIcon(ThemeMode mode) {
     switch (mode) {
       case ThemeMode.light:
@@ -817,6 +899,11 @@ class _ConnectionListPageState extends State<ConnectionListPage>
       appBar: AppBar(
         title: const Text('Connections'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.devices),
+            tooltip: 'Mon HWID',
+            onPressed: _showHwidDialog,
+          ),
           PopupMenuButton<ThemeMode>(
             initialValue: widget.themeMode,
             tooltip: 'Theme',
@@ -845,7 +932,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
             onPressed: () async {
               final result = await _showAddDialog();
               if (result != null && result.isNotEmpty) {
-                _addEntryFromUri(result);
+                _handleAddText(result);
               }
             },
             icon: const Icon(Icons.add),
@@ -1157,6 +1244,7 @@ class ConnectionDetailPage extends StatefulWidget {
     required this.activeId,
     required this.onActiveChanged,
     required this.onSave,
+    this.locked = false,
   });
 
   final ConnectionEntry entry;
@@ -1164,6 +1252,7 @@ class ConnectionDetailPage extends StatefulWidget {
   final String? activeId;
   final ValueChanged<String?> onActiveChanged;
   final SaveConnection onSave;
+  final bool locked;
 
   @override
   State<ConnectionDetailPage> createState() => _ConnectionDetailPageState();
@@ -1253,7 +1342,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   }
 
   void _markDirty() {
-    if (_isActive || _dirty) return;
+    if (_isActive || _dirty || widget.locked) return;
     setState(() {
       _dirty = true;
     });
@@ -1454,6 +1543,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   }
 
   Future<bool> _applyEditsIfNeeded({bool showMessage = false}) async {
+    if (widget.locked) return true;
     if (!_dirty) {
       return _validateProxyPerAppSelection(showMessage: true);
     }
@@ -1472,7 +1562,11 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
       return false;
     }
     final uri = _buildUri(config);
-    final updated = ConnectionEntry(uri: uri, config: config);
+    final updated = ConnectionEntry(
+      uri: uri,
+      config: config,
+      locked: widget.locked,
+    );
     widget.onSave(updated, showMessage: showMessage);
     setState(() {
       _entry = updated;
@@ -1482,7 +1576,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   }
 
   Future<void> _handlePop() async {
-    if (!_dirty) return;
+    if (widget.locked || !_dirty) return;
     final ok = await _applyEditsIfNeeded(showMessage: true);
     if (ok && mounted) {
       Navigator.of(context).pop();
@@ -1492,7 +1586,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   Future<void> _connect() async {
     final applied = await _applyEditsIfNeeded();
     if (!applied) return;
-    
+
     if (_entry.config.hwid != null && _entry.config.hwid!.isNotEmpty) {
       final deviceHwid = await getDeviceHwid();
       if (_entry.config.hwid != deviceHwid) {
@@ -1502,7 +1596,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
         return;
       }
     }
-    
+
     setState(() {
       _error = null;
     });
@@ -1591,7 +1685,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     if (host.isEmpty || localPort == null) {
       return null;
     }
-    if (_encryptMode == 'none' && key == null && 
+    if (_encryptMode == 'none' &&
+        key == null &&
         (username.isEmpty || password.isEmpty)) {
       return null;
     }
@@ -1660,12 +1755,12 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text(_entry.title),
+          title: Text(widget.locked ? 'Connexion sécurisée' : _entry.config.serverHost),
           actions: [
             IconButton(
               onPressed: _copyUri,
               icon: const Icon(Icons.copy),
-              tooltip: 'Copy URI',
+              tooltip: 'Copier URI encodée',
             ),
           ],
         ),
@@ -1674,39 +1769,41 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
           children: [
             _StatusCard(status: status, error: errorText),
             const SizedBox(height: 12),
-            _DetailsFormCard(
-              formKey: _formKey,
-              hostController: _hostController,
-              keyController: _keyController,
-              usernameController: _usernameController,
-              passwordController: _passwordController,
-              hwidController: _hwidController,
-              localPortController: _localPortController,
-              encryptKeyController: _encryptKeyController,
-              mode: _mode,
-              onModeChanged: (value) {
-                if (_isActive) return;
-                setState(() {
-                  _mode = value;
-                  _dirty = true;
-                });
-              },
-              encryptMode: _encryptMode,
-              onEncryptModeChanged: (value) {
-                if (_isActive) return;
-                setState(() {
-                  _encryptMode = value;
-                  _dirty = true;
-                });
-              },
-              supportsProxyPerApp: Platform.isAndroid,
-              proxyPerAppPackages: _proxyPerAppPackages,
-              loadingProxyPerAppApps: _loadingProxyPerAppApps,
-              onSelectProxyPerAppApps: _pickProxyPerAppApps,
-              readOnly: _isActive,
-              onSave: _saveEdits,
-            ),
-            const SizedBox(height: 12),
+            if (!widget.locked) ...[
+              _DetailsFormCard(
+                formKey: _formKey,
+                hostController: _hostController,
+                keyController: _keyController,
+                usernameController: _usernameController,
+                passwordController: _passwordController,
+                hwidController: _hwidController,
+                localPortController: _localPortController,
+                encryptKeyController: _encryptKeyController,
+                mode: _mode,
+                onModeChanged: (value) {
+                  if (_isActive) return;
+                  setState(() {
+                    _mode = value;
+                    _dirty = true;
+                  });
+                },
+                encryptMode: _encryptMode,
+                onEncryptModeChanged: (value) {
+                  if (_isActive) return;
+                  setState(() {
+                    _encryptMode = value;
+                    _dirty = true;
+                  });
+                },
+                supportsProxyPerApp: Platform.isAndroid,
+                proxyPerAppPackages: _proxyPerAppPackages,
+                loadingProxyPerAppApps: _loadingProxyPerAppApps,
+                onSelectProxyPerAppApps: _pickProxyPerAppApps,
+                readOnly: _isActive,
+                onSave: _saveEdits,
+              ),
+              const SizedBox(height: 12),
+            ],
             _DiagnosticsCard(
               lastProbeResult: _lastProbeResult,
               lastProbeError: _lastProbeError,
@@ -2063,7 +2160,7 @@ class _DetailsFormCard extends StatelessWidget {
                   final username = value?.trim() ?? '';
                   final password = passwordController.text.trim();
                   final keyText = keyController.text.trim();
-                  if (keyText.isEmpty && 
+                  if (keyText.isEmpty &&
                       (username.isEmpty || password.isEmpty)) {
                     return 'Username required (or use key)';
                   }
@@ -2084,7 +2181,7 @@ class _DetailsFormCard extends StatelessWidget {
                   final password = value?.trim() ?? '';
                   final username = usernameController.text.trim();
                   final keyText = keyController.text.trim();
-                  if (keyText.isEmpty && 
+                  if (keyText.isEmpty &&
                       (username.isEmpty || password.isEmpty)) {
                     return 'Password required (or use key)';
                   }
@@ -2108,7 +2205,8 @@ class _DetailsFormCard extends StatelessWidget {
                   builder: (context, snapshot) {
                     final hwid = snapshot.data ?? 'Chargement...';
                     return ListTile(
-                      leading: Icon(Icons.info, color: Theme.of(context).colorScheme.primary),
+                      leading: Icon(Icons.info,
+                          color: Theme.of(context).colorScheme.primary),
                       title: Text('HWID de cet appareil'),
                       subtitle: SelectableText(hwid),
                       trailing: IconButton(
@@ -2137,7 +2235,7 @@ class _DetailsFormCard extends StatelessWidget {
                   final text = value?.trim() ?? '';
                   final username = usernameController.text.trim();
                   final password = passwordController.text.trim();
-                  if (text.isEmpty && 
+                  if (text.isEmpty &&
                       (username.isEmpty || password.isEmpty)) {
                     return 'Key required (or use username/password)';
                   }
@@ -2352,7 +2450,7 @@ class _InfoRow extends StatelessWidget {
                 ),
               ),
             ],
-          ),
+          );
         );
       },
     );
