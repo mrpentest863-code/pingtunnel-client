@@ -13,23 +13,14 @@ import 'package:window_manager/window_manager.dart';
 import 'src/config.dart';
 import 'src/tunnel_controller.dart';
 
-const _buildVersionName = String.fromEnvironment(
-  'APP_VERSION',
-  defaultValue: 'dev',
-);
-const _buildVersionCode = String.fromEnvironment(
-  'APP_BUILD',
-  defaultValue: '0',
-);
+const _buildVersionName = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
+const _buildVersionCode = String.fromEnvironment('APP_BUILD', defaultValue: '0');
 const _buildGitSha = String.fromEnvironment('GIT_SHA', defaultValue: 'local');
 
-String _shortGitSha(String value) =>
-    value.length <= 8 ? value : value.substring(0, 8);
+String _shortGitSha(String value) => value.length <= 8 ? value : value.substring(0, 8);
+String get _buildLabel => 'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
-String get _buildLabel =>
-    'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
-
-// Phrase secrète pour ouvrir le formulaire de création
+// Phrase secrète pour ouvrir le formulaire de création manuelle
 const String _secretPhrase = "respire";
 
 Future<String> getDeviceHwid() async {
@@ -45,8 +36,7 @@ Future<String> getDeviceHwid() async {
       rawId = ios.identifierForVendor ?? 'unknown';
     } else if (Platform.isLinux) {
       try {
-        final file = File('/etc/machine-id');
-        rawId = file.readAsStringSync().trim();
+        rawId = File('/etc/machine-id').readAsStringSync().trim();
       } catch (_) {
         final info = await deviceInfo.linuxInfo;
         rawId = info.machineId ?? 'unknown';
@@ -62,176 +52,98 @@ Future<String> getDeviceHwid() async {
     rawId = 'unknown';
   }
 
-  final bytes = utf8.encode(rawId);
-  final digest = sha256.convert(bytes);
+  final digest = sha256.convert(utf8.encode(rawId));
   return digest.toString().substring(0, 32);
 }
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isLinux) {
-    await windowManager.ensureInitialized();
-  }
+  if (Platform.isLinux) await windowManager.ensureInitialized();
   runApp(const PingtunnelApp());
 }
 
 class PingtunnelApp extends StatefulWidget {
   const PingtunnelApp({super.key});
-
   @override
   State<PingtunnelApp> createState() => _PingtunnelAppState();
 }
 
 class _PingtunnelAppState extends State<PingtunnelApp> {
-  static const _prefsKeyThemeMode = 'theme_mode';
-
   ThemeMode _themeMode = ThemeMode.system;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_loadThemeMode());
+    _loadTheme();
   }
 
-  Future<void> _loadThemeMode() async {
+  Future<void> _loadTheme() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getString(_prefsKeyThemeMode);
-    final mode = _themeModeFromStorage(saved);
-    if (!mounted || mode == _themeMode) return;
+    final saved = prefs.getString('theme_mode');
+    if (!mounted) return;
     setState(() {
-      _themeMode = mode;
+      _themeMode = switch (saved) {
+        'light' => ThemeMode.light,
+        'dark' => ThemeMode.dark,
+        _ => ThemeMode.system,
+      };
     });
   }
 
-  Future<void> _setThemeMode(ThemeMode mode) async {
-    if (mode == _themeMode) return;
-    setState(() {
-      _themeMode = mode;
-    });
+  Future<void> _setTheme(ThemeMode mode) async {
+    setState(() => _themeMode = mode);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefsKeyThemeMode, _themeModeToStorage(mode));
-  }
-
-  String _themeModeToStorage(ThemeMode mode) {
-    switch (mode) {
-      case ThemeMode.light:
-        return 'light';
-      case ThemeMode.dark:
-        return 'dark';
-      case ThemeMode.system:
-        return 'system';
-    }
-  }
-
-  ThemeMode _themeModeFromStorage(String? value) {
-    switch (value) {
-      case 'light':
-        return ThemeMode.light;
-      case 'dark':
-        return ThemeMode.dark;
-      default:
-        return ThemeMode.system;
-    }
+    await prefs.setString('theme_mode', switch (mode) {
+      ThemeMode.light => 'light',
+      ThemeMode.dark => 'dark',
+      ThemeMode.system => 'system',
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    const primary = Color(0xFF0E7A6A);
-    final lightScheme = ColorScheme.fromSeed(
-      seedColor: primary,
-      brightness: Brightness.light,
-    );
-    final darkScheme = ColorScheme.fromSeed(
-      seedColor: primary,
-      brightness: Brightness.dark,
-    );
+    final primary = const Color(0xFF0E7A6A);
+    final lightScheme = ColorScheme.fromSeed(seedColor: primary, brightness: Brightness.light);
+    final darkScheme = ColorScheme.fromSeed(seedColor: primary, brightness: Brightness.dark);
 
     return MaterialApp(
       title: 'Pingtunnel Client',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: lightScheme,
-        scaffoldBackgroundColor: lightScheme.surface,
-        cardTheme: CardThemeData(
-          color: lightScheme.surfaceContainerLow,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: lightScheme.outlineVariant),
-          ),
-          margin: EdgeInsets.zero,
-        ),
-      ),
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        colorScheme: darkScheme,
-        scaffoldBackgroundColor: darkScheme.surface,
-        cardTheme: CardThemeData(
-          color: darkScheme.surfaceContainerLow,
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: darkScheme.outlineVariant),
-          ),
-          margin: EdgeInsets.zero,
-        ),
-      ),
+      theme: ThemeData(useMaterial3: true, colorScheme: lightScheme),
+      darkTheme: ThemeData(useMaterial3: true, colorScheme: darkScheme),
       themeMode: _themeMode,
-      home: ConnectionListPage(
-        themeMode: _themeMode,
-        onThemeModeChanged: _setThemeMode,
-      ),
+      home: ConnectionListPage(themeMode: _themeMode, onThemeModeChanged: _setTheme),
     );
   }
 }
 
 class ConnectionEntry {
-  ConnectionEntry({
-    required this.uri,
-    required this.config,
-    this.locked = false,
-  });
-
+  ConnectionEntry({required this.uri, required this.config, this.locked = false});
   final String uri;
   final TunnelConfig config;
   final bool locked;
-
   String get id => uri;
   String get title => config.serverHost.isEmpty ? 'Connexion sécurisée' : config.serverHost;
 }
 
-typedef SaveConnection =
-    void Function(ConnectionEntry entry, {bool showMessage});
+typedef SaveConnection = void Function(ConnectionEntry entry, {bool showMessage});
 
-String buildConnectionUri(TunnelConfig config) {
-  final encoded = config.encode();
-  return 'princ://encoded/$encoded';
-}
+String buildConnectionUri(TunnelConfig config) => 'princ://encoded/${config.encode()}';
 
 class ConnectionListPage extends StatefulWidget {
-  const ConnectionListPage({
-    super.key,
-    required this.themeMode,
-    required this.onThemeModeChanged,
-  });
-
+  const ConnectionListPage({super.key, required this.themeMode, required this.onThemeModeChanged});
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
-
   @override
   State<ConnectionListPage> createState() => _ConnectionListPageState();
 }
 
-class _ConnectionListPageState extends State<ConnectionListPage>
-    with WindowListener {
+class _ConnectionListPageState extends State<ConnectionListPage> with WindowListener {
   static const _prefsKeyConnections = 'connections';
   static const _prefsKeySelected = 'selected_connection';
-  static const MethodChannel _linuxTrayChannel = MethodChannel(
-    'pingtunnel_tray_linux',
-  );
+  static const MethodChannel _linuxTrayChannel = MethodChannel('pingtunnel_tray_linux');
 
   final TunnelController _controller = TunnelController();
-  final List<ConnectionEntry> _entries = <ConnectionEntry>[];
+  final List<ConnectionEntry> _entries = [];
   String? _activeId;
   String? _selectedId;
   bool _testing = false;
@@ -249,38 +161,32 @@ class _ConnectionListPageState extends State<ConnectionListPage>
   void initState() {
     super.initState();
     _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (mounted) {
-        setState(() {});
-      }
-      if (_isAndroidDevice) {
+      if (mounted) setState(() {});
+      if (_isAndroid) {
         _androidSyncTick = (_androidSyncTick + 1) % 2;
-        if (_androidSyncTick == 0) {
-          unawaited(_syncAndroidRuntimeState());
-        }
+        if (_androidSyncTick == 0) unawaited(_syncAndroidRuntimeState());
       }
     });
     _initLinuxTray();
     _loadConnections();
-    if (_isAndroidDevice) {
-      unawaited(_syncAndroidRuntimeState());
-    }
+    if (_isAndroid) unawaited(_syncAndroidRuntimeState());
   }
 
   @override
   void dispose() {
     _uiTimer?.cancel();
-    if (_isLinuxDesktop) {
+    if (_isLinux) {
       _linuxTrayChannel.setMethodCallHandler(null);
       windowManager.removeListener(this);
     }
     super.dispose();
   }
 
-  bool get _isLinuxDesktop => Platform.isLinux;
-  bool get _isAndroidDevice => Platform.isAndroid;
+  bool get _isLinux => Platform.isLinux;
+  bool get _isAndroid => Platform.isAndroid;
 
   Future<void> _initLinuxTray() async {
-    if (!_isLinuxDesktop) return;
+    if (!_isLinux) return;
     windowManager.addListener(this);
     try {
       _linuxTrayChannel.setMethodCallHandler(_onLinuxTrayMethodCall);
@@ -299,44 +205,33 @@ class _ConnectionListPageState extends State<ConnectionListPage>
 
   Future<void> _refreshLinuxTrayState() async {
     if (!_linuxTrayReady) return;
-
     final active = _activeEntry();
     final selected = _selectedEntry();
     final target = active ?? selected;
-    final mode =
-        target?.config.mode == TunnelMode.vpn ||
-            target?.config.mode == TunnelMode.proxyPerApp
+    final mode = target?.config.mode == TunnelMode.vpn || target?.config.mode == TunnelMode.proxyPerApp
         ? 'vpn'
         : target?.config.mode == TunnelMode.proxy
         ? 'proxy'
         : 'none';
-
     try {
-      await _linuxTrayChannel.invokeMethod<void>(
-        'updateState',
-        <String, dynamic>{
-          'connected': _activeId != null,
-          'mode': mode,
-          'hasTarget': target != null,
-        },
-      );
+      await _linuxTrayChannel.invokeMethod<void>('updateState', {
+        'connected': _activeId != null,
+        'mode': mode,
+        'hasTarget': target != null,
+      });
     } catch (_) {}
   }
 
-  ConnectionEntry? _trayTargetEntry() {
-    return _activeEntry() ??
-        _selectedEntry() ??
-        (_entries.isNotEmpty ? _entries.first : null);
-  }
+  ConnectionEntry? _trayTargetEntry() => _activeEntry() ?? _selectedEntry() ?? (_entries.isNotEmpty ? _entries.first : null);
 
   Future<void> _showWindowFromTray() async {
-    if (!_isLinuxDesktop) return;
+    if (!_isLinux) return;
     await windowManager.show();
     await windowManager.focus();
   }
 
   Future<void> _syncAndroidRuntimeState() async {
-    if (!_isAndroidDevice || _syncingAndroidStatus) return;
+    if (!_isAndroid || _syncingAndroidStatus) return;
     _syncingAndroidStatus = true;
     try {
       final running = await _controller.isAndroidRunning();
@@ -345,17 +240,11 @@ class _ConnectionListPageState extends State<ConnectionListPage>
         _androidNotRunningSamples = 0;
         return;
       }
-      _androidNotRunningSamples += 1;
-      if (_androidNotRunningSamples < 2) {
-        return;
-      }
-      if ((_activeId != null ||
-          _controller.status == TunnelStatus.connected ||
-          _controller.status == TunnelStatus.connecting)) {
+      _androidNotRunningSamples++;
+      if (_androidNotRunningSamples < 2) return;
+      if (_activeId != null || _controller.status == TunnelStatus.connected || _controller.status == TunnelStatus.connecting) {
         _controller.markDisconnectedExternally();
-        setState(() {
-          _activeId = null;
-        });
+        setState(() => _activeId = null);
       }
     } catch (_) {
     } finally {
@@ -367,10 +256,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     if (call.method != 'onTrayEvent') return;
     final args = call.arguments;
     var event = '';
-    if (args is Map) {
-      event = args['event']?.toString() ?? '';
-    }
-
+    if (args is Map) event = args['event']?.toString() ?? '';
     switch (event) {
       case 'connect':
         await _connectSelected();
@@ -390,8 +276,6 @@ class _ConnectionListPageState extends State<ConnectionListPage>
       case 'exit':
         await _exitFromTray();
         break;
-      default:
-        break;
     }
   }
 
@@ -402,34 +286,23 @@ class _ConnectionListPageState extends State<ConnectionListPage>
       _showMessage('Add a connection first');
       return;
     }
-
     final wasActive = _activeId == target.id;
     final updatedConfig = target.config.copyWith(mode: mode);
-    final updated = ConnectionEntry(
-      uri: buildConnectionUri(updatedConfig),
-      config: updatedConfig,
-      locked: target.locked,
-    );
+    final updated = ConnectionEntry(uri: buildConnectionUri(updatedConfig), config: updatedConfig, locked: target.locked);
     _updateEntry(target, updated, showMessage: false);
     _selectEntry(updated);
-
     if (wasActive) {
       try {
         await _controller.stop();
         await _controller.start(updated.config);
-        setState(() {
-          _activeId = updated.id;
-        });
+        setState(() => _activeId = updated.id);
       } catch (err) {
-        setState(() {
-          _activeId = null;
-        });
+        setState(() => _activeId = null);
         _showMessage('Failed to switch mode: $err');
         _scheduleLinuxTrayRefresh();
         return;
       }
     }
-
     _showMessage('Mode set to ${mode == TunnelMode.vpn ? "VPN" : "Proxy"}');
     _scheduleLinuxTrayRefresh();
   }
@@ -437,12 +310,9 @@ class _ConnectionListPageState extends State<ConnectionListPage>
   Future<void> _exitFromTray() async {
     _linuxExitRequested = true;
     try {
-      if (_activeId != null) {
-        await _controller.stop();
-      }
+      if (_activeId != null) await _controller.stop();
     } catch (_) {}
-
-    if (_isLinuxDesktop) {
+    if (_isLinux) {
       await windowManager.setPreventClose(false);
       try {
         await _linuxTrayChannel.invokeMethod<void>('exitNow');
@@ -454,11 +324,9 @@ class _ConnectionListPageState extends State<ConnectionListPage>
 
   @override
   void onWindowClose() async {
-    if (!_isLinuxDesktop || _linuxExitRequested) return;
+    if (!_isLinux || _linuxExitRequested) return;
     final preventClose = await windowManager.isPreventClose();
-    if (preventClose) {
-      await windowManager.hide();
-    }
+    if (preventClose) await windowManager.hide();
   }
 
   Future<void> _loadConnections() async {
@@ -471,17 +339,12 @@ class _ConnectionListPageState extends State<ConnectionListPage>
         final config = TunnelConfig.parse(uri);
         final locked = uri.startsWith('princ://encoded/');
         loaded.add(ConnectionEntry(uri: uri, config: config, locked: locked));
-      } catch (_) {
-        continue;
-      }
+      } catch (_) {}
     }
     setState(() {
-      _entries
-        ..clear()
-        ..addAll(loaded);
+      _entries..clear()..addAll(loaded);
       _selectedId = selected;
-      if (_selectedId == null ||
-          !_entries.any((entry) => entry.id == _selectedId)) {
+      if (_selectedId == null || !_entries.any((e) => e.id == _selectedId)) {
         _selectedId = _entries.isNotEmpty ? _entries.first.id : null;
       }
       _loading = false;
@@ -491,8 +354,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
 
   Future<void> _persistConnections() async {
     final prefs = await SharedPreferences.getInstance();
-    final uris = _entries.map((entry) => entry.uri).toList();
-    await prefs.setStringList(_prefsKeyConnections, uris);
+    await prefs.setStringList(_prefsKeyConnections, _entries.map((e) => e.uri).toList());
     if (_selectedId != null) {
       await prefs.setString(_prefsKeySelected, _selectedId!);
     } else {
@@ -500,28 +362,11 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     }
   }
 
-  ConnectionEntry? _selectedEntry() {
-    for (final entry in _entries) {
-      if (entry.id == _selectedId) {
-        return entry;
-      }
-    }
-    return null;
-  }
-
-  ConnectionEntry? _activeEntry() {
-    for (final entry in _entries) {
-      if (entry.id == _activeId) {
-        return entry;
-      }
-    }
-    return null;
-  }
+  ConnectionEntry? _selectedEntry() => _entries.where((e) => e.id == _selectedId).firstOrNull;
+  ConnectionEntry? _activeEntry() => _entries.where((e) => e.id == _activeId).firstOrNull;
 
   void _selectEntry(ConnectionEntry entry) {
-    setState(() {
-      _selectedId = entry.id;
-    });
+    setState(() => _selectedId = entry.id);
     _persistConnections();
     _scheduleLinuxTrayRefresh();
   }
@@ -531,68 +376,40 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     final text = data?.text?.trim();
     if (text == null || text.isEmpty) {
       final result = await _showAddDialog();
-      if (result != null && result.isNotEmpty) {
-        _handleAddText(result);
-      }
+      if (result != null && result.isNotEmpty) _handleAddText(result);
       return;
     }
     _handleAddText(text);
   }
 
-  Future<String?> _showAddDialog({
-    String? initial,
-    String title = 'Add connection',
-    String actionLabel = 'Add',
-  }) async {
-    final controller = TextEditingController(text: initial ?? '');
+  Future<String?> _showAddDialog() async {
+    final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(title),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(
-              hintText: 'Collez une URL encodée ou tapez la phrase secrète',
-            ),
-            minLines: 1,
-            maxLines: 3,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, controller.text.trim()),
-              child: Text(actionLabel),
-            ),
-          ],
-        );
-      },
+      builder: (context) => AlertDialog(
+        title: const Text('Add connection'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(hintText: 'Collez une URL encodée ou tapez la phrase secrète'),
+          minLines: 1,
+          maxLines: 3,
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Add')),
+        ],
+      ),
     );
-
     return result;
   }
 
   void _handleAddText(String text) {
     if (text.trim() == _secretPhrase) {
-      // Créer une configuration vide non verrouillée
-      final config = TunnelConfig(
-        serverHost: '',
-        localSocksPort: 1080,
-        mode: TunnelMode.proxy,
-      );
-      final entry = ConnectionEntry(
-        uri: '',
-        config: config,
-        locked: false,
-      );
+      final config = TunnelConfig(serverHost: '', localSocksPort: 1080, mode: TunnelMode.proxy);
+      final entry = ConnectionEntry(uri: '', config: config, locked: false);
       _openDetails(entry);
       return;
     }
-
-    // Seules les URL encodées sont acceptées
     if (text.trim().startsWith('princ://encoded/')) {
       _addEntryFromUri(text.trim());
     } else {
@@ -602,25 +419,17 @@ class _ConnectionListPageState extends State<ConnectionListPage>
 
   void _addEntryFromUri(String uriText) {
     try {
-      if (!uriText.startsWith('princ://encoded/')) {
-        throw const FormatException('Only encoded URIs are allowed');
-      }
+      if (!uriText.startsWith('princ://encoded/')) throw const FormatException('Only encoded URIs are allowed');
       final config = TunnelConfig.parse(uriText);
       final locked = true;
-      final existingIndex = _entries.indexWhere(
-        (entry) => entry.uri == uriText,
-      );
+      final existingIndex = _entries.indexWhere((e) => e.uri == uriText);
       setState(() {
         if (existingIndex >= 0) {
           final entry = _entries.removeAt(existingIndex);
           _entries.insert(0, entry);
           _selectedId = entry.id;
         } else {
-          final entry = ConnectionEntry(
-            uri: uriText,
-            config: config,
-            locked: locked,
-          );
+          final entry = ConnectionEntry(uri: uriText, config: config, locked: locked);
           _entries.insert(0, entry);
           _selectedId = entry.id;
         }
@@ -634,9 +443,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _openDetails(ConnectionEntry entry) async {
@@ -648,30 +455,19 @@ class _ConnectionListPageState extends State<ConnectionListPage>
           controller: _controller,
           activeId: _activeId,
           onActiveChanged: (id) {
-            setState(() {
-              _activeId = id;
-            });
+            setState(() => _activeId = id);
             _scheduleLinuxTrayRefresh();
           },
-          onSave: (updated, {showMessage = true}) =>
-              _updateEntry(entry, updated, showMessage: showMessage),
+          onSave: (updated, {showMessage = true}) => _updateEntry(entry, updated, showMessage: showMessage),
           locked: entry.locked,
         ),
       ),
     );
-    if (mounted) {
-      setState(() {});
-    }
+    if (mounted) setState(() {});
   }
 
-  void _updateEntry(
-    ConnectionEntry original,
-    ConnectionEntry updated, {
-    bool showMessage = true,
-  }) {
-    final existingIndex = _entries.indexWhere(
-      (item) => item.id == original.id,
-    );
+  void _updateEntry(ConnectionEntry original, ConnectionEntry updated, {bool showMessage = true}) {
+    final existingIndex = _entries.indexWhere((e) => e.id == original.id);
     setState(() {
       if (existingIndex >= 0) {
         _entries[existingIndex] = updated;
@@ -679,25 +475,17 @@ class _ConnectionListPageState extends State<ConnectionListPage>
         _entries.insert(0, updated);
         _selectedId = updated.id;
       }
-
       final duplicates = _entries.where((e) => e.id == updated.id).toList();
       if (duplicates.length > 1) {
         final keep = duplicates.first;
         _entries.removeWhere((e) => e.id == updated.id && e != keep);
       }
-
-      if (_selectedId == original.id) {
-        _selectedId = updated.id;
-      }
-      if (_activeId == original.id) {
-        _activeId = updated.id;
-      }
+      if (_selectedId == original.id) _selectedId = updated.id;
+      if (_activeId == original.id) _activeId = updated.id;
     });
     _persistConnections();
     _scheduleLinuxTrayRefresh();
-    if (showMessage) {
-      _showMessage('Connection saved');
-    }
+    if (showMessage) _showMessage('Connection saved');
   }
 
   Future<void> _connectSelected() async {
@@ -706,7 +494,6 @@ class _ConnectionListPageState extends State<ConnectionListPage>
       _showMessage('Select a connection first');
       return;
     }
-
     if (entry.config.hwid != null && entry.config.hwid!.isNotEmpty) {
       final deviceHwid = await getDeviceHwid();
       if (entry.config.hwid != deviceHwid) {
@@ -714,15 +501,10 @@ class _ConnectionListPageState extends State<ConnectionListPage>
         return;
       }
     }
-
     try {
-      if (_activeId != null && _activeId != entry.id) {
-        await _controller.stop();
-      }
+      if (_activeId != null && _activeId != entry.id) await _controller.stop();
       await _controller.start(entry.config);
-      setState(() {
-        _activeId = entry.id;
-      });
+      setState(() => _activeId = entry.id);
       _scheduleLinuxTrayRefresh();
     } catch (err) {
       _showMessage(err.toString());
@@ -731,15 +513,11 @@ class _ConnectionListPageState extends State<ConnectionListPage>
 
   Future<void> _disconnectActive({bool showMessage = true}) async {
     if (_activeId == null) {
-      if (showMessage) {
-        _showMessage('Nothing is connected');
-      }
+      if (showMessage) _showMessage('Nothing is connected');
       return;
     }
     await _controller.stop();
-    setState(() {
-      _activeId = null;
-    });
+    setState(() => _activeId = null);
     _scheduleLinuxTrayRefresh();
   }
 
@@ -753,9 +531,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
       _showMessage('Connect first');
       return;
     }
-    setState(() {
-      _testing = true;
-    });
+    setState(() => _testing = true);
     try {
       final result = await _controller.testConnection(entry.config);
       setState(() {
@@ -770,11 +546,7 @@ class _ConnectionListPageState extends State<ConnectionListPage>
       });
       _showMessage('Test failed: $err');
     } finally {
-      if (mounted) {
-        setState(() {
-          _testing = false;
-        });
-      }
+      if (mounted) setState(() => _testing = false);
     }
   }
 
@@ -785,14 +557,8 @@ class _ConnectionListPageState extends State<ConnectionListPage>
         title: const Text('Delete connection?'),
         content: Text(entry.title),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete')),
         ],
       ),
     );
@@ -813,13 +579,9 @@ class _ConnectionListPageState extends State<ConnectionListPage>
 
   void _removeEntry(ConnectionEntry entry) {
     setState(() {
-      _entries.removeWhere((item) => item.id == entry.id);
-      if (_activeId == entry.id) {
-        _activeId = null;
-      }
-      if (_selectedId == entry.id) {
-        _selectedId = _entries.isNotEmpty ? _entries.first.id : null;
-      }
+      _entries.removeWhere((e) => e.id == entry.id);
+      if (_activeId == entry.id) _activeId = null;
+      if (_selectedId == entry.id) _selectedId = _entries.isNotEmpty ? _entries.first.id : null;
     });
     _scheduleLinuxTrayRefresh();
   }
@@ -836,17 +598,11 @@ class _ConnectionListPageState extends State<ConnectionListPage>
           children: [
             SelectableText(hwid),
             const SizedBox(height: 8),
-            Text(
-              'Ce HWID est unique à votre appareil.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text('Ce HWID est unique à votre appareil.', style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Fermer'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer')),
           FilledButton.icon(
             onPressed: () {
               Clipboard.setData(ClipboardData(text: hwid));
@@ -861,83 +617,35 @@ class _ConnectionListPageState extends State<ConnectionListPage>
     );
   }
 
-  IconData _themeModeIcon(ThemeMode mode) {
-    switch (mode) {
-      case ThemeMode.light:
-        return Icons.light_mode;
-      case ThemeMode.dark:
-        return Icons.dark_mode;
-      case ThemeMode.system:
-        return Icons.brightness_auto;
-    }
-  }
-
-  String _themeModeLabel(ThemeMode mode) {
-    switch (mode) {
-      case ThemeMode.light:
-        return 'Light';
-      case ThemeMode.dark:
-        return 'Dark';
-      case ThemeMode.system:
-        return 'System';
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final entries = _entries;
     final selected = _selectedEntry();
     final active = _activeEntry();
     final isSelectedActive = selected != null && selected.id == _activeId;
-    final status = isSelectedActive
-        ? _controller.status
-        : TunnelStatus.disconnected;
-    final canTest =
-        isSelectedActive && status == TunnelStatus.connected && !_testing;
+    final status = isSelectedActive ? _controller.status : TunnelStatus.disconnected;
+    final canTest = isSelectedActive && status == TunnelStatus.connected && !_testing;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Connections'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.devices),
-            tooltip: 'Mon HWID',
-            onPressed: _showHwidDialog,
-          ),
+          IconButton(icon: const Icon(Icons.devices), tooltip: 'Mon HWID', onPressed: _showHwidDialog),
           PopupMenuButton<ThemeMode>(
             initialValue: widget.themeMode,
             tooltip: 'Theme',
             onSelected: widget.onThemeModeChanged,
-            itemBuilder: (context) => <PopupMenuEntry<ThemeMode>>[
-              for (final mode in ThemeMode.values)
-                PopupMenuItem<ThemeMode>(
-                  value: mode,
-                  child: Row(
-                    children: [
-                      Icon(_themeModeIcon(mode), size: 18),
-                      const SizedBox(width: 8),
-                      Text(_themeModeLabel(mode)),
-                    ],
-                  ),
-                ),
-            ],
-            icon: Icon(_themeModeIcon(widget.themeMode)),
+            itemBuilder: (context) => ThemeMode.values.map((mode) => PopupMenuItem<ThemeMode>(
+              value: mode,
+              child: Text(mode == ThemeMode.light ? 'Light' : mode == ThemeMode.dark ? 'Dark' : 'System'),
+            )).toList(),
+            icon: Icon(widget.themeMode == ThemeMode.light ? Icons.light_mode : widget.themeMode == ThemeMode.dark ? Icons.dark_mode : Icons.brightness_auto),
           ),
-          IconButton(
-            onPressed: _addFromClipboard,
-            icon: const Icon(Icons.content_paste),
-            tooltip: 'Paste URI',
-          ),
-          IconButton(
-            onPressed: () async {
-              final result = await _showAddDialog();
-              if (result != null && result.isNotEmpty) {
-                _handleAddText(result);
-              }
-            },
-            icon: const Icon(Icons.add),
-            tooltip: 'Add URI',
-          ),
+          IconButton(icon: const Icon(Icons.content_paste), tooltip: 'Paste URI', onPressed: _addFromClipboard),
+          IconButton(icon: const Icon(Icons.add), tooltip: 'Add URI', onPressed: () async {
+            final result = await _showAddDialog();
+            if (result != null && result.isNotEmpty) _handleAddText(result);
+          }),
         ],
       ),
       body: _loading
@@ -951,173 +659,87 @@ class _ConnectionListPageState extends State<ConnectionListPage>
               itemBuilder: (context, index) {
                 final entry = entries[index];
                 final isActive = _activeId == entry.id;
-                final statusForTile = isActive
-                    ? _controller.status
-                    : TunnelStatus.disconnected;
                 return _ConnectionTile(
                   entry: entry,
                   isActive: isActive,
                   isSelected: _selectedId == entry.id,
-                  status: statusForTile,
+                  status: isActive ? _controller.status : TunnelStatus.disconnected,
                   onSelect: () => _selectEntry(entry),
                   onDetails: () => _openDetails(entry),
                   onDelete: () => _deleteEntry(entry),
                 );
               },
             ),
-      bottomNavigationBar: _loading
-          ? null
-          : SafeArea(
-              child: Container(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surface,
-                  border: Border(
-                    top: BorderSide(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ),
-                  ),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      selected == null
-                          ? 'Select a connection'
-                          : 'Selected: ${selected.title}',
-                      style: Theme.of(context).textTheme.labelLarge,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (active != null && active.id != selected?.id) ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        'Active: ${active.title}',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.6),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          flex: 3,
-                          child: FilledButton.tonalIcon(
-                            onPressed: canTest ? _testSelected : null,
-                            icon: const Icon(Icons.network_check),
-                            label: Text(_testing ? 'Testing...' : 'Test'),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 5,
-                          child: SizedBox(
-                            height: 52,
-                            child: FilledButton.icon(
-                              onPressed: status == TunnelStatus.connecting
-                                  ? null
-                                  : (isSelectedActive
-                                        ? _disconnectActive
-                                        : _connectSelected),
-                              icon: Icon(
-                                isSelectedActive
-                                    ? Icons.stop
-                                    : Icons.play_arrow,
-                              ),
-                              label: Text(
-                                status == TunnelStatus.connecting
-                                    ? 'Connecting...'
-                                    : (isSelectedActive
-                                          ? 'Disconnect'
-                                          : 'Connect'),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (_lastProbeAt != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        _lastProbeError != null
-                            ? 'Last test failed'
-                            : 'Last test OK',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.onSurface.withValues(alpha: 0.6),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 6),
-                    const Align(
-                      alignment: Alignment.centerRight,
-                      child: _BuildInfoText(),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onPaste});
-
-  final VoidCallback onPaste;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.link, size: 48, color: colors.outline),
-            const SizedBox(height: 16),
-            Text(
-              'No connections yet',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Collez votre URL encodée ici.',
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: onPaste,
-              icon: const Icon(Icons.content_paste),
-              label: const Text('Paste URI'),
-            ),
-          ],
+      bottomNavigationBar: _loading ? null : SafeArea(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border(top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(selected == null ? 'Select a connection' : 'Selected: ${selected.title}',
+                style: Theme.of(context).textTheme.labelLarge, maxLines: 1, overflow: TextOverflow.ellipsis),
+              if (active != null && active.id != selected?.id) ...[
+                const SizedBox(height: 2),
+                Text('Active: ${active.title}',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)),
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              ],
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(flex: 3, child: FilledButton.tonalIcon(
+                  onPressed: canTest ? _testSelected : null,
+                  icon: const Icon(Icons.network_check),
+                  label: Text(_testing ? 'Testing...' : 'Test'),
+                )),
+                const SizedBox(width: 12),
+                Expanded(flex: 5, child: SizedBox(height: 52, child: FilledButton.icon(
+                  onPressed: status == TunnelStatus.connecting ? null : (isSelectedActive ? _disconnectActive : _connectSelected),
+                  icon: Icon(isSelectedActive ? Icons.stop : Icons.play_arrow),
+                  label: Text(status == TunnelStatus.connecting ? 'Connecting...' : (isSelectedActive ? 'Disconnect' : 'Connect')),
+                ))),
+              ]),
+              if (_lastProbeAt != null) ...[
+                const SizedBox(height: 6),
+                Text(_lastProbeError != null ? 'Last test failed' : 'Last test OK',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
+              ],
+              const SizedBox(height: 6),
+              const Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _ConnectionTile extends StatelessWidget {
-  const _ConnectionTile({
-    required this.entry,
-    required this.isActive,
-    required this.isSelected,
-    required this.status,
-    required this.onSelect,
-    required this.onDetails,
-    required this.onDelete,
-  });
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.onPaste});
+  final VoidCallback onPaste;
+  @override
+  Widget build(BuildContext context) {
+    return Center(child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(Icons.link, size: 48, color: Theme.of(context).colorScheme.outline),
+        const SizedBox(height: 16),
+        Text('No connections yet', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Text('Collez votre URL encodée ici.', style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+        const SizedBox(height: 16),
+        OutlinedButton.icon(onPressed: onPaste, icon: const Icon(Icons.content_paste), label: const Text('Paste URI')),
+      ]),
+    ));
+  }
+}
 
+class _ConnectionTile extends StatelessWidget {
+  const _ConnectionTile({required this.entry, required this.isActive, required this.isSelected, required this.status, required this.onSelect, required this.onDetails, required this.onDelete});
   final ConnectionEntry entry;
   final bool isActive;
   final bool isSelected;
@@ -1131,51 +753,21 @@ class _ConnectionTile extends StatelessWidget {
     final modeText = switch (entry.config.mode) {
       TunnelMode.proxy => 'Proxy',
       TunnelMode.vpn => 'VPN',
-      TunnelMode.proxyPerApp =>
-        'Proxy per app (${entry.config.proxyPerAppPackages.length})',
+      TunnelMode.proxyPerApp => 'Proxy per app (${entry.config.proxyPerAppPackages.length})',
     };
-    final subtitle = StringBuffer()
-      ..write(modeText)
-      ..write('  •  ')
-      ..write('Local ${entry.config.localSocksPort}');
-
-    if (entry.config.mode == TunnelMode.proxy) {
-      subtitle.write(' (SOCKS5+HTTP)');
-    }
-
-    final borderColor = isSelected
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).colorScheme.outlineVariant;
-
+    final subtitle = '$modeText  •  Local ${entry.config.localSocksPort}';
     return Card(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: borderColor, width: isSelected ? 1.4 : 1),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: BorderSide(color: isSelected ? Theme.of(context).colorScheme.primary : Theme.of(context).colorScheme.outlineVariant, width: isSelected ? 1.4 : 1)),
       child: ListTile(
         onTap: onSelect,
         selected: isSelected,
         title: Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text(
-          subtitle.toString(),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
+        subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
         leading: _StatusChip(isActive: isActive, status: status),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              onPressed: isActive ? null : onDelete,
-              icon: const Icon(Icons.delete_outline),
-              tooltip: isActive ? 'Disconnect to delete' : 'Delete',
-            ),
-            IconButton(
-              onPressed: onDetails,
-              icon: const Icon(Icons.chevron_right),
-            ),
-          ],
-        ),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(onPressed: isActive ? null : onDelete, icon: const Icon(Icons.delete_outline), tooltip: isActive ? 'Disconnect to delete' : 'Delete'),
+          IconButton(onPressed: onDetails, icon: const Icon(Icons.chevron_right)),
+        ]),
       ),
     );
   }
@@ -1183,77 +775,38 @@ class _ConnectionTile extends StatelessWidget {
 
 class _StatusChip extends StatelessWidget {
   const _StatusChip({required this.isActive, required this.status});
-
   final bool isActive;
   final TunnelStatus status;
-
   @override
   Widget build(BuildContext context) {
     String label;
     Color color;
     final colors = Theme.of(context).colorScheme;
-
-    if (!isActive) {
-      label = 'Idle';
-      color = colors.outline;
-    } else {
+    if (!isActive) { label = 'Idle'; color = colors.outline; }
+    else {
       switch (status) {
-        case TunnelStatus.connected:
-          label = 'Connected';
-          color = colors.primary;
-          break;
-        case TunnelStatus.connecting:
-          label = 'Connecting';
-          color = colors.secondary;
-          break;
-        case TunnelStatus.error:
-          label = 'Error';
-          color = colors.error;
-          break;
-        case TunnelStatus.disconnected:
-          label = 'Disconnected';
-          color = colors.outline;
-          break;
+        case TunnelStatus.connected: label = 'Connected'; color = colors.primary; break;
+        case TunnelStatus.connecting: label = 'Connecting'; color = colors.secondary; break;
+        case TunnelStatus.error: label = 'Error'; color = colors.error; break;
+        case TunnelStatus.disconnected: label = 'Disconnected'; color = colors.outline; break;
       }
     }
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: color,
-        ),
-      ),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(999), border: Border.all(color: color.withValues(alpha: 0.3))),
+      child: Text(label, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
     );
   }
 }
 
 class ConnectionDetailPage extends StatefulWidget {
-  const ConnectionDetailPage({
-    super.key,
-    required this.entry,
-    required this.controller,
-    required this.activeId,
-    required this.onActiveChanged,
-    required this.onSave,
-    this.locked = false,
-  });
-
+  const ConnectionDetailPage({super.key, required this.entry, required this.controller, required this.activeId, required this.onActiveChanged, required this.onSave, this.locked = false});
   final ConnectionEntry entry;
   final TunnelController controller;
   final String? activeId;
   final ValueChanged<String?> onActiveChanged;
   final SaveConnection onSave;
   final bool locked;
-
   @override
   State<ConnectionDetailPage> createState() => _ConnectionDetailPageState();
 }
@@ -1267,7 +820,6 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   bool _isActive = false;
   bool _dirty = false;
   String? _error;
-  final Uri _ipCheckUri = Uri.parse('https://ifconfig.me');
   final _formKey = GlobalKey<FormState>();
   late ConnectionEntry _entry;
   late final TextEditingController _hostController;
@@ -1289,24 +841,12 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _isActive = widget.activeId == _entry.id;
     _mode = _entry.config.mode;
     _hostController = TextEditingController(text: _entry.config.serverHost);
-    _keyController = TextEditingController(
-      text: _entry.config.key?.toString() ?? '',
-    );
-    _usernameController = TextEditingController(
-      text: _entry.config.username ?? '',
-    );
-    _passwordController = TextEditingController(
-      text: _entry.config.password ?? '',
-    );
-    _hwidController = TextEditingController(
-      text: _entry.config.hwid ?? '',
-    );
-    _localPortController = TextEditingController(
-      text: _entry.config.localSocksPort.toString(),
-    );
-    _encryptKeyController = TextEditingController(
-      text: _entry.config.encryptKey ?? '',
-    );
+    _keyController = TextEditingController(text: _entry.config.key?.toString() ?? '');
+    _usernameController = TextEditingController(text: _entry.config.username ?? '');
+    _passwordController = TextEditingController(text: _entry.config.password ?? '');
+    _hwidController = TextEditingController(text: _entry.config.hwid ?? '');
+    _localPortController = TextEditingController(text: _entry.config.localSocksPort.toString());
+    _encryptKeyController = TextEditingController(text: _entry.config.encryptKey ?? '');
     _encryptMode = _entry.config.encryptMode ?? 'none';
     _proxyPerAppPackages = [..._entry.config.proxyPerAppPackages]..sort();
     _hostController.addListener(_markDirty);
@@ -1316,7 +856,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController.addListener(_markDirty);
     _localPortController.addListener(_markDirty);
     _encryptKeyController.addListener(_markDirty);
-    _startUiTimer();
+    _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) { if (mounted) setState(() {}); });
   }
 
   @override
@@ -1332,228 +872,19 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     super.dispose();
   }
 
-  void _startUiTimer() {
-    _uiTimer?.cancel();
-    _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
-      if (mounted) {
-        setState(() {});
-      }
-    });
-  }
-
   void _markDirty() {
     if (_isActive || _dirty || widget.locked) return;
-    setState(() {
-      _dirty = true;
-    });
+    setState(() => _dirty = true);
   }
 
   bool get _isProxyPerAppMode => _mode == TunnelMode.proxyPerApp;
 
-  bool _validateProxyPerAppSelection({bool showMessage = true}) {
-    if (!_isProxyPerAppMode) {
-      return true;
-    }
-    if (_proxyPerAppPackages.isNotEmpty) {
-      return true;
-    }
-    if (showMessage) {
-      _showMessage('Select at least one app for Proxy per app mode');
-    }
-    return false;
-  }
-
-  Future<void> _pickProxyPerAppApps() async {
-    if (!Platform.isAndroid || _isActive || _loadingProxyPerAppApps) {
-      return;
-    }
-    setState(() {
-      _loadingProxyPerAppApps = true;
-    });
-
-    try {
-      final apps = await widget.controller.listAndroidLaunchableApps();
-      if (!mounted) {
-        return;
-      }
-      if (apps.isEmpty) {
-        _showMessage('No launchable apps found');
-        return;
-      }
-
-      final selected = await showModalBottomSheet<Set<String>>(
-        context: context,
-        isScrollControlled: true,
-        builder: (context) {
-          final selectedPackages = Set<String>.from(_proxyPerAppPackages);
-          var searchQuery = '';
-          return StatefulBuilder(
-            builder: (context, setModalState) {
-              final normalizedQuery = searchQuery.trim().toLowerCase();
-              final filteredApps = normalizedQuery.isEmpty
-                  ? apps
-                  : apps
-                        .where((app) {
-                          final label = app.label.toLowerCase();
-                          return label.contains(normalizedQuery);
-                        })
-                        .toList(growable: false);
-
-              return SafeArea(
-                child: SizedBox(
-                  height: MediaQuery.of(context).size.height * 0.78,
-                  child: Column(
-                    children: [
-                      const SizedBox(height: 10),
-                      Container(
-                        width: 42,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.outlineVariant,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                        child: Row(
-                          children: [
-                            Text(
-                              'Choose apps to tunnel',
-                              style: Theme.of(context).textTheme.titleMedium,
-                            ),
-                            const Spacer(),
-                            TextButton(
-                              onPressed: () => Navigator.of(context).pop(),
-                              child: const Text('Cancel'),
-                            ),
-                            const SizedBox(width: 4),
-                            FilledButton(
-                              onPressed: () =>
-                                  Navigator.of(context).pop(selectedPackages),
-                              child: const Text('Done'),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                        child: TextField(
-                          decoration: const InputDecoration(
-                            hintText: 'Search apps',
-                            prefixIcon: Icon(Icons.search),
-                          ),
-                          onChanged: (value) {
-                            setModalState(() {
-                              searchQuery = value;
-                            });
-                          },
-                        ),
-                      ),
-                      Expanded(
-                        child: filteredApps.isEmpty
-                            ? Center(
-                                child: Text(
-                                  'No apps found',
-                                  style: Theme.of(context).textTheme.bodyMedium,
-                                ),
-                              )
-                            : ListView.builder(
-                                itemCount: filteredApps.length,
-                                itemBuilder: (context, index) {
-                                  final app = filteredApps[index];
-                                  final checked = selectedPackages.contains(
-                                    app.packageName,
-                                  );
-                                  return ListTile(
-                                    onTap: () {
-                                      setModalState(() {
-                                        if (checked) {
-                                          selectedPackages.remove(
-                                            app.packageName,
-                                          );
-                                        } else {
-                                          selectedPackages.add(app.packageName);
-                                        }
-                                      });
-                                    },
-                                    leading: ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: app.iconPng != null
-                                          ? Image.memory(
-                                              app.iconPng!,
-                                              width: 28,
-                                              height: 28,
-                                              fit: BoxFit.cover,
-                                              filterQuality: FilterQuality.low,
-                                              errorBuilder: (_, _, _) =>
-                                                  const Icon(
-                                                    Icons.apps,
-                                                    size: 22,
-                                                  ),
-                                            )
-                                          : const Icon(Icons.apps, size: 22),
-                                    ),
-                                    title: Text(
-                                      app.label,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    trailing: checked
-                                        ? Icon(
-                                            Icons.check_circle,
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.primary,
-                                          )
-                                        : null,
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      );
-
-      if (selected == null) {
-        return;
-      }
-
-      if (!mounted) {
-        return;
-      }
-
-      final sorted = selected.toList()..sort();
-      setState(() {
-        _proxyPerAppPackages = sorted;
-        _dirty = true;
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _loadingProxyPerAppApps = false;
-        });
-      }
-    }
-  }
-
   Future<bool> _applyEditsIfNeeded({bool showMessage = false}) async {
     if (widget.locked) return true;
-    if (!_dirty) {
-      return _validateProxyPerAppSelection(showMessage: true);
-    }
+    if (!_dirty) return _isProxyPerAppMode ? _proxyPerAppPackages.isNotEmpty : true;
     if (_isActive) return false;
-    final valid = _formKey.currentState?.validate() ?? false;
-    if (!valid) {
+    if (!_formKey.currentState!.validate()) {
       _showMessage('Fix the fields before continuing');
-      return false;
-    }
-    if (!_validateProxyPerAppSelection(showMessage: true)) {
       return false;
     }
     final config = _buildConfigFromFields();
@@ -1561,112 +892,56 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
       _showMessage('Fix the fields before continuing');
       return false;
     }
-    final uri = _buildUri(config);
-    final updated = ConnectionEntry(
-      uri: uri,
-      config: config,
-      locked: widget.locked,
-    );
+    final uri = buildConnectionUri(config);
+    final updated = ConnectionEntry(uri: uri, config: config, locked: widget.locked);
     widget.onSave(updated, showMessage: showMessage);
-    setState(() {
-      _entry = updated;
-      _dirty = false;
-    });
+    setState(() { _entry = updated; _dirty = false; });
     return true;
   }
 
-  Future<void> _handlePop() async {
-    if (widget.locked || !_dirty) return;
-    final ok = await _applyEditsIfNeeded(showMessage: true);
-    if (ok && mounted) {
-      Navigator.of(context).pop();
-    }
-  }
-
   Future<void> _connect() async {
-    final applied = await _applyEditsIfNeeded();
-    if (!applied) return;
-
+    if (!await _applyEditsIfNeeded()) return;
     if (_entry.config.hwid != null && _entry.config.hwid!.isNotEmpty) {
       final deviceHwid = await getDeviceHwid();
       if (_entry.config.hwid != deviceHwid) {
-        setState(() {
-          _error = 'HWID non autorisé pour cet appareil';
-        });
+        setState(() => _error = 'HWID non autorisé pour cet appareil');
         return;
       }
     }
-
-    setState(() {
-      _error = null;
-    });
+    setState(() => _error = null);
     try {
-      if (!_isActive && widget.controller.status == TunnelStatus.connected) {
-        await widget.controller.stop();
-      }
+      if (!_isActive && widget.controller.status == TunnelStatus.connected) await widget.controller.stop();
       await widget.controller.start(_entry.config);
-      setState(() {
-        _isActive = true;
-      });
+      setState(() => _isActive = true);
       widget.onActiveChanged(_entry.id);
     } catch (err) {
-      setState(() {
-        _error = err.toString();
-      });
+      setState(() => _error = err.toString());
     }
   }
 
   Future<void> _disconnect() async {
     await widget.controller.stop();
     widget.onActiveChanged(null);
-    setState(() {
-      _isActive = false;
-    });
+    setState(() => _isActive = false);
   }
 
   Future<void> _testConnection() async {
-    final applied = await _applyEditsIfNeeded();
-    if (!applied) return;
-    if (!_isActive) {
-      _showMessage('Connect first');
-      return;
-    }
-    setState(() {
-      _testing = true;
-      _error = null;
-    });
+    if (!await _applyEditsIfNeeded()) return;
+    if (!_isActive) { _showMessage('Connect first'); return; }
+    setState(() => _testing = true);
     try {
       final result = await widget.controller.testConnection(_entry.config);
-      setState(() {
-        _lastProbeResult = result;
-        _lastProbeError = null;
-        _lastProbeAt = DateTime.now();
-      });
+      setState(() { _lastProbeResult = result; _lastProbeError = null; _lastProbeAt = DateTime.now(); });
     } catch (err) {
-      setState(() {
-        _lastProbeError = err.toString();
-        _lastProbeResult = null;
-        _lastProbeAt = DateTime.now();
-      });
+      setState(() { _lastProbeError = err.toString(); _lastProbeResult = null; _lastProbeAt = DateTime.now(); });
     } finally {
-      if (mounted) {
-        setState(() {
-          _testing = false;
-        });
-      }
+      if (mounted) setState(() => _testing = false);
     }
   }
 
   Future<void> _copyUri() async {
     await Clipboard.setData(ClipboardData(text: _entry.uri));
     _showMessage('URI encodée copiée');
-  }
-
-  int? _parsePort(String input, {bool optional = false}) {
-    if (input.isEmpty) return optional ? null : 1080;
-    final value = int.tryParse(input);
-    if (value == null || value < 1 || value > 65535) return null;
-    return value;
   }
 
   TunnelConfig? _buildConfigFromFields() {
@@ -1676,334 +951,135 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final username = _usernameController.text.trim();
     final password = _passwordController.text.trim();
     final hwid = _hwidController.text.trim();
-    final localPort = _parsePort(_localPortController.text.trim());
+    final localPort = int.tryParse(_localPortController.text.trim());
     final encryptMode = _encryptMode == 'none' ? null : _encryptMode;
-    final encryptKey = _encryptKeyController.text.trim().isEmpty
-        ? null
-        : _encryptKeyController.text.trim();
-
-    if (host.isEmpty || localPort == null) {
-      return null;
-    }
-    if (_encryptMode == 'none' &&
-        key == null &&
-        (username.isEmpty || password.isEmpty)) {
-      return null;
-    }
-    if (_encryptMode != 'none' && encryptKey == null) {
-      return null;
-    }
-    if (_isProxyPerAppMode && _proxyPerAppPackages.isEmpty) {
-      return null;
-    }
-
-    final effectiveKey = _encryptMode == 'none' ? key : null;
-    final sortedProxyPerAppPackages = [..._proxyPerAppPackages]..sort();
-
+    final encryptKey = _encryptKeyController.text.trim().isEmpty ? null : _encryptKeyController.text.trim();
+    if (host.isEmpty || localPort == null) return null;
+    if (_encryptMode == 'none' && key == null && (username.isEmpty || password.isEmpty)) return null;
+    if (_encryptMode != 'none' && encryptKey == null) return null;
+    if (_isProxyPerAppMode && _proxyPerAppPackages.isEmpty) return null;
     return TunnelConfig(
       serverHost: host,
       serverPort: null,
       localSocksPort: localPort,
-      key: effectiveKey,
+      key: _encryptMode == 'none' ? key : null,
       username: username.isEmpty ? null : username,
       password: password.isEmpty ? null : password,
       hwid: hwid.isEmpty ? null : hwid,
       mode: _mode,
       encryptMode: encryptMode,
       encryptKey: encryptKey,
-      proxyPerAppPackages: sortedProxyPerAppPackages,
+      proxyPerAppPackages: [..._proxyPerAppPackages]..sort(),
     );
-  }
-
-  String _buildUri(TunnelConfig config) {
-    return buildConnectionUri(config);
-  }
-
-  Future<void> _saveEdits() async {
-    await _applyEditsIfNeeded(showMessage: true);
-  }
-
-  Future<void> _openIpCheck() async {
-    final ok = await launchUrl(
-      _ipCheckUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (!ok && mounted) {
-      _showMessage('Could not open browser');
-    }
   }
 
   void _showMessage(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
   Widget build(BuildContext context) {
-    final status = _isActive
-        ? widget.controller.status
-        : TunnelStatus.disconnected;
+    final status = _isActive ? widget.controller.status : TunnelStatus.disconnected;
     final errorText = _error ?? widget.controller.lastError;
     final logLines = _isActive ? widget.controller.logBuffer.lines : <String>[];
-
-    return PopScope(
-      canPop: !_dirty,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        _handlePop();
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(widget.locked ? 'Connexion sécurisée' : _entry.config.serverHost),
-          actions: [
-            IconButton(
-              onPressed: _copyUri,
-              icon: const Icon(Icons.copy),
-              tooltip: 'Copier URI encodée',
-            ),
-          ],
-        ),
-        body: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
-          children: [
-            _StatusCard(status: status, error: errorText),
-            const SizedBox(height: 12),
-            if (!widget.locked) ...[
-              _DetailsFormCard(
-                formKey: _formKey,
-                hostController: _hostController,
-                keyController: _keyController,
-                usernameController: _usernameController,
-                passwordController: _passwordController,
-                hwidController: _hwidController,
-                localPortController: _localPortController,
-                encryptKeyController: _encryptKeyController,
-                mode: _mode,
-                onModeChanged: (value) {
-                  if (_isActive) return;
-                  setState(() {
-                    _mode = value;
-                    _dirty = true;
-                  });
-                },
-                encryptMode: _encryptMode,
-                onEncryptModeChanged: (value) {
-                  if (_isActive) return;
-                  setState(() {
-                    _encryptMode = value;
-                    _dirty = true;
-                  });
-                },
-                supportsProxyPerApp: Platform.isAndroid,
-                proxyPerAppPackages: _proxyPerAppPackages,
-                loadingProxyPerAppApps: _loadingProxyPerAppApps,
-                onSelectProxyPerAppApps: _pickProxyPerAppApps,
-                readOnly: _isActive,
-                onSave: _saveEdits,
-              ),
-              const SizedBox(height: 12),
-            ],
-            _DiagnosticsCard(
-              lastProbeResult: _lastProbeResult,
-              lastProbeError: _lastProbeError,
-              lastProbeAt: _lastProbeAt,
-              onOpenIpCheck: _openIpCheck,
-            ),
-            const SizedBox(height: 12),
-            _LogsCard(lines: logLines),
-          ],
-        ),
-        bottomNavigationBar: SafeArea(
-          child: Container(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              border: Border(
-                top: BorderSide(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-              ),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: FilledButton.tonalIcon(
-                        onPressed: _testing ? null : _testConnection,
-                        icon: const Icon(Icons.network_check),
-                        label: Text(_testing ? 'Testing...' : 'Test'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 5,
-                      child: SizedBox(
-                        height: 52,
-                        child: FilledButton.icon(
-                          onPressed: status == TunnelStatus.connecting
-                              ? null
-                              : (_isActive ? _disconnect : _connect),
-                          icon: Icon(_isActive ? Icons.stop : Icons.play_arrow),
-                          label: Text(_isActive ? 'Disconnect' : 'Connect'),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                const Align(
-                  alignment: Alignment.centerRight,
-                  child: _BuildInfoText(),
-                ),
-              ],
-            ),
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.locked ? 'Connexion sécurisée' : _entry.config.serverHost),
+        actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copier URI encodée')],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+        children: [
+          _StatusCard(status: status, error: errorText),
+          const SizedBox(height: 12),
+          if (!widget.locked) _DetailsFormCard(
+            formKey: _formKey,
+            hostController: _hostController,
+            keyController: _keyController,
+            usernameController: _usernameController,
+            passwordController: _passwordController,
+            hwidController: _hwidController,
+            localPortController: _localPortController,
+            encryptKeyController: _encryptKeyController,
+            mode: _mode,
+            onModeChanged: (value) { if (_isActive) return; setState(() { _mode = value; _dirty = true; }); },
+            encryptMode: _encryptMode,
+            onEncryptModeChanged: (value) { if (_isActive) return; setState(() { _encryptMode = value; _dirty = true; }); },
+            readOnly: _isActive,
+            onSave: _saveEdits,
           ),
+          const SizedBox(height: 12),
+          _DiagnosticsCard(lastProbeResult: _lastProbeResult, lastProbeError: _lastProbeError, lastProbeAt: _lastProbeAt, onOpenIpCheck: _openIpCheck),
+          const SizedBox(height: 12),
+          _LogsCard(lines: logLines),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, border: Border(top: BorderSide(color: Theme.of(context).colorScheme.outlineVariant))),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              Expanded(flex: 3, child: FilledButton.tonalIcon(onPressed: _testing ? null : _testConnection, icon: const Icon(Icons.network_check), label: Text(_testing ? 'Testing...' : 'Test'))),
+              const SizedBox(width: 12),
+              Expanded(flex: 5, child: SizedBox(height: 52, child: FilledButton.icon(
+                onPressed: status == TunnelStatus.connecting ? null : (_isActive ? _disconnect : _connect),
+                icon: Icon(_isActive ? Icons.stop : Icons.play_arrow),
+                label: Text(_isActive ? 'Disconnect' : 'Connect'),
+              ))),
+            ]),
+            const SizedBox(height: 6),
+            const Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
+          ]),
         ),
       ),
     );
+  }
+
+  Future<void> _saveEdits() async { await _applyEditsIfNeeded(showMessage: true); }
+
+  Future<void> _openIpCheck() async {
+    final ok = await launchUrl(Uri.parse('https://ifconfig.me'), mode: LaunchMode.externalApplication);
+    if (!ok && mounted) _showMessage('Could not open browser');
   }
 }
 
 class _BuildInfoText extends StatelessWidget {
   const _BuildInfoText();
-
   @override
   Widget build(BuildContext context) {
-    return Text(
-      _buildLabel,
-      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-        fontSize: 10,
-        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
-      ),
-    );
+    return Text(_buildLabel, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 10, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55)));
   }
 }
 
 class _StatusCard extends StatelessWidget {
   const _StatusCard({required this.status, required this.error});
-
   final TunnelStatus status;
   final String? error;
-
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final config = _statusConfig(status, colorScheme);
-
-    return SizedBox(
-      height: 72,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(config.icon, color: config.color),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      config.title,
-                      style: Theme.of(context).textTheme.titleMedium,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      error?.isNotEmpty == true ? error! : config.subtitle,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurface.withValues(alpha: 0.7),
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ),
-              ),
-              _StatusChip(isActive: true, status: status),
-            ],
-          ),
-        ),
-      ),
-    );
+    final colors = Theme.of(context).colorScheme;
+    final (title, subtitle, icon, color) = switch (status) {
+      TunnelStatus.connected => ('Connected', 'Tunnel is active', Icons.check_circle, colors.primary),
+      TunnelStatus.connecting => ('Connecting', 'Working...', Icons.hourglass_top, colors.secondary),
+      TunnelStatus.error => ('Error', 'Check logs', Icons.error, colors.error),
+      TunnelStatus.disconnected => ('Disconnected', 'Not connected', Icons.radio_button_unchecked, colors.outline),
+    };
+    return SizedBox(height: 72, child: Card(child: Padding(padding: const EdgeInsets.all(16), child: Row(children: [
+      Icon(icon, color: color),
+      const SizedBox(width: 12),
+      Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: Theme.of(context).textTheme.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 2),
+        Text(error?.isNotEmpty == true ? error! : subtitle, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.onSurface.withValues(alpha: 0.7)), maxLines: 1, overflow: TextOverflow.ellipsis),
+      ])),
+      _StatusChip(isActive: true, status: status),
+    ]))));
   }
-
-  _StatusVisual _statusConfig(TunnelStatus status, ColorScheme colors) {
-    switch (status) {
-      case TunnelStatus.connected:
-        return _StatusVisual(
-          title: 'Connected',
-          subtitle: 'Tunnel is active',
-          icon: Icons.check_circle,
-          color: colors.primary,
-        );
-      case TunnelStatus.connecting:
-        return _StatusVisual(
-          title: 'Connecting',
-          subtitle: 'Working...',
-          icon: Icons.hourglass_top,
-          color: colors.secondary,
-        );
-      case TunnelStatus.error:
-        return _StatusVisual(
-          title: 'Error',
-          subtitle: 'Check logs',
-          icon: Icons.error,
-          color: colors.error,
-        );
-      case TunnelStatus.disconnected:
-        return _StatusVisual(
-          title: 'Disconnected',
-          subtitle: 'Not connected',
-          icon: Icons.radio_button_unchecked,
-          color: colors.outline,
-        );
-    }
-  }
-}
-
-class _StatusVisual {
-  _StatusVisual({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.color,
-  });
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final Color color;
 }
 
 class _DetailsFormCard extends StatelessWidget {
-  const _DetailsFormCard({
-    required this.formKey,
-    required this.hostController,
-    required this.keyController,
-    required this.usernameController,
-    required this.passwordController,
-    required this.hwidController,
-    required this.localPortController,
-    required this.encryptKeyController,
-    required this.mode,
-    required this.onModeChanged,
-    required this.encryptMode,
-    required this.onEncryptModeChanged,
-    required this.supportsProxyPerApp,
-    required this.proxyPerAppPackages,
-    required this.loadingProxyPerAppApps,
-    required this.onSelectProxyPerAppApps,
-    required this.readOnly,
-    required this.onSave,
-  });
-
+  const _DetailsFormCard({required this.formKey, required this.hostController, required this.keyController, required this.usernameController, required this.passwordController, required this.hwidController, required this.localPortController, required this.encryptKeyController, required this.mode, required this.onModeChanged, required this.encryptMode, required this.onEncryptModeChanged, required this.readOnly, required this.onSave});
   final GlobalKey<FormState> formKey;
   final TextEditingController hostController;
   final TextEditingController keyController;
@@ -2016,443 +1092,100 @@ class _DetailsFormCard extends StatelessWidget {
   final ValueChanged<TunnelMode> onModeChanged;
   final String encryptMode;
   final ValueChanged<String> onEncryptModeChanged;
-  final bool supportsProxyPerApp;
-  final List<String> proxyPerAppPackages;
-  final bool loadingProxyPerAppApps;
-  final VoidCallback onSelectProxyPerAppApps;
   final bool readOnly;
   final VoidCallback onSave;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: formKey,
-          autovalidateMode: AutovalidateMode.onUserInteraction,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Text(
-                    'Details',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const Spacer(),
-                  FilledButton(
-                    onPressed: readOnly ? null : onSave,
-                    child: const Text('Save'),
-                  ),
-                ],
-              ),
-              if (readOnly) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'Disconnect to edit',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.onSurface.withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: hostController,
-                enabled: !readOnly,
-                decoration: const InputDecoration(labelText: 'Host'),
-                validator: (value) {
-                  final text = value?.trim() ?? '';
-                  if (text.isEmpty) return 'Host is required';
-                  if (text.contains('://')) return 'Host only, no scheme';
-                  if (text.contains('/') || text.contains(' ')) {
-                    return 'Invalid host';
-                  }
-                  if (text.contains(':')) return 'Host must not include port';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<TunnelMode>(
-                key: ValueKey(mode),
-                initialValue: mode,
-                decoration: const InputDecoration(labelText: 'Mode'),
-                items: const [
-                  DropdownMenuItem(
-                    value: TunnelMode.proxy,
-                    child: Text('Proxy'),
-                  ),
-                  DropdownMenuItem(value: TunnelMode.vpn, child: Text('VPN')),
-                  DropdownMenuItem(
-                    value: TunnelMode.proxyPerApp,
-                    child: Text('Proxy per app (Android)'),
-                  ),
-                ],
-                onChanged: readOnly
-                    ? null
-                    : (value) => onModeChanged(value ?? mode),
-              ),
-              if (mode == TunnelMode.proxyPerApp) ...[
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        proxyPerAppPackages.isEmpty
-                            ? 'No apps selected'
-                            : '${proxyPerAppPackages.length} apps selected',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ),
-                    FilledButton.tonalIcon(
-                      onPressed:
-                          (!supportsProxyPerApp ||
-                              readOnly ||
-                              loadingProxyPerAppApps)
-                          ? null
-                          : onSelectProxyPerAppApps,
-                      icon: Icon(
-                        loadingProxyPerAppApps
-                            ? Icons.hourglass_top
-                            : Icons.apps,
-                      ),
-                      label: Text(
-                        loadingProxyPerAppApps ? 'Loading...' : 'Select apps',
-                      ),
-                    ),
-                  ],
-                ),
-                if (!supportsProxyPerApp) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Proxy per app selection is available on Android only.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.7),
-                    ),
-                  ),
-                ],
-                if (proxyPerAppPackages.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    'Open picker to review selected apps.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.7),
-                    ),
-                  ),
-                ],
-              ],
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: usernameController,
-                enabled: !readOnly && encryptMode == 'none',
-                decoration: const InputDecoration(
-                  labelText: 'Username',
-                  prefixIcon: Icon(Icons.person),
-                ),
-                validator: (value) {
-                  if (encryptMode != 'none') return null;
-                  final username = value?.trim() ?? '';
-                  final password = passwordController.text.trim();
-                  final keyText = keyController.text.trim();
-                  if (keyText.isEmpty &&
-                      (username.isEmpty || password.isEmpty)) {
-                    return 'Username required (or use key)';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: passwordController,
-                enabled: !readOnly && encryptMode == 'none',
-                obscureText: true,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  prefixIcon: Icon(Icons.lock),
-                ),
-                validator: (value) {
-                  if (encryptMode != 'none') return null;
-                  final password = value?.trim() ?? '';
-                  final username = usernameController.text.trim();
-                  final keyText = keyController.text.trim();
-                  if (keyText.isEmpty &&
-                      (username.isEmpty || password.isEmpty)) {
-                    return 'Password required (or use key)';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: hwidController,
-                enabled: !readOnly,
-                decoration: const InputDecoration(
-                  labelText: 'HWID Autorisé (optionnel)',
-                  prefixIcon: Icon(Icons.devices),
-                  hintText: 'Laisser vide pour tous les appareils',
-                ),
-              ),
-              const SizedBox(height: 12),
-              Card(
-                child: FutureBuilder<String>(
-                  future: getDeviceHwid(),
-                  builder: (context, snapshot) {
-                    final hwid = snapshot.data ?? 'Chargement...';
-                    return ListTile(
-                      leading: Icon(Icons.info,
-                          color: Theme.of(context).colorScheme.primary),
-                      title: Text('HWID de cet appareil'),
-                      subtitle: SelectableText(hwid),
-                      trailing: IconButton(
-                        icon: Icon(Icons.copy),
-                        onPressed: () {
-                          Clipboard.setData(ClipboardData(text: hwid));
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('HWID copié')),
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: keyController,
-                enabled: !readOnly && encryptMode == 'none',
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Key (legacy)',
-                ),
-                validator: (value) {
-                  if (encryptMode != 'none') return null;
-                  final text = value?.trim() ?? '';
-                  final username = usernameController.text.trim();
-                  final password = passwordController.text.trim();
-                  if (text.isEmpty &&
-                      (username.isEmpty || password.isEmpty)) {
-                    return 'Key required (or use username/password)';
-                  }
-                  if (text.isNotEmpty && int.tryParse(text) == null) {
-                    return 'Key must be a number';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                key: ValueKey(encryptMode),
-                initialValue: encryptMode,
-                decoration: const InputDecoration(labelText: 'Encryption'),
-                items: const [
-                  DropdownMenuItem(value: 'none', child: Text('None')),
-                  DropdownMenuItem(value: 'aes128', child: Text('AES-128')),
-                  DropdownMenuItem(value: 'aes256', child: Text('AES-256')),
-                  DropdownMenuItem(value: 'chacha20', child: Text('ChaCha20')),
-                ],
-                onChanged: readOnly
-                    ? null
-                    : (value) => onEncryptModeChanged(value ?? 'none'),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: encryptKeyController,
-                enabled: !readOnly && encryptMode != 'none',
-                decoration: const InputDecoration(labelText: 'Encryption key'),
-                validator: (value) {
-                  if (encryptMode == 'none') return null;
-                  final text = value?.trim() ?? '';
-                  if (text.isEmpty) return 'Encryption key is required';
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: localPortController,
-                enabled: !readOnly,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Local port'),
-                validator: (value) {
-                  final text = value?.trim() ?? '';
-                  if (text.isEmpty) return 'Local port is required';
-                  final parsed = int.tryParse(text);
-                  if (parsed == null || parsed < 1 || parsed > 65535) {
-                    return 'Port must be 1-65535';
-                  }
-                  return null;
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Form(key: formKey, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [Text('Details', style: Theme.of(context).textTheme.titleMedium), const Spacer(), FilledButton(onPressed: readOnly ? null : onSave, child: const Text('Save'))]),
+      if (readOnly) ...[const SizedBox(height: 6), Text('Disconnect to edit', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)))],
+      const SizedBox(height: 12),
+      TextFormField(controller: hostController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'Host'), validator: (v) => v!.trim().isEmpty ? 'Host required' : null),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<TunnelMode>(initialValue: mode, decoration: const InputDecoration(labelText: 'Mode'), items: const [
+        DropdownMenuItem(value: TunnelMode.proxy, child: Text('Proxy')),
+        DropdownMenuItem(value: TunnelMode.vpn, child: Text('VPN')),
+        DropdownMenuItem(value: TunnelMode.proxyPerApp, child: Text('Proxy per app')),
+      ], onChanged: readOnly ? null : (v) => onModeChanged(v!)),
+      const SizedBox(height: 12),
+      TextFormField(controller: usernameController, enabled: !readOnly && encryptMode == 'none', decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person)), validator: (v) {
+        if (encryptMode != 'none') return null;
+        if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Username or key required';
+        return null;
+      }),
+      const SizedBox(height: 12),
+      TextFormField(controller: passwordController, enabled: !readOnly && encryptMode == 'none', obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock)), validator: (v) {
+        if (encryptMode != 'none') return null;
+        if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Password or key required';
+        return null;
+      }),
+      const SizedBox(height: 12),
+      TextFormField(controller: hwidController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'HWID Autorisé (optionnel)', prefixIcon: Icon(Icons.devices), hintText: 'Laisser vide pour tous')),
+      const SizedBox(height: 12),
+      Card(child: FutureBuilder<String>(future: getDeviceHwid(), builder: (context, snapshot) {
+        final hwid = snapshot.data ?? 'Chargement...';
+        return ListTile(leading: Icon(Icons.info, color: Theme.of(context).colorScheme.primary), title: Text('HWID de cet appareil'), subtitle: SelectableText(hwid), trailing: IconButton(icon: Icon(Icons.copy), onPressed: () { Clipboard.setData(ClipboardData(text: hwid)); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('HWID copié'))); }));
+      })),
+      const SizedBox(height: 12),
+      TextFormField(controller: keyController, enabled: !readOnly && encryptMode == 'none', keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Key (legacy)'), validator: (v) {
+        if (encryptMode != 'none') return null;
+        if (v!.trim().isEmpty && usernameController.text.trim().isEmpty && passwordController.text.trim().isEmpty) return 'Key or username/password required';
+        return null;
+      }),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<String>(initialValue: encryptMode, decoration: const InputDecoration(labelText: 'Encryption'), items: const [
+        DropdownMenuItem(value: 'none', child: Text('None')),
+        DropdownMenuItem(value: 'aes128', child: Text('AES-128')),
+        DropdownMenuItem(value: 'aes256', child: Text('AES-256')),
+        DropdownMenuItem(value: 'chacha20', child: Text('ChaCha20')),
+      ], onChanged: readOnly ? null : (v) => onEncryptModeChanged(v!)),
+      const SizedBox(height: 12),
+      TextFormField(controller: encryptKeyController, enabled: !readOnly && encryptMode != 'none', decoration: const InputDecoration(labelText: 'Encryption key'), validator: (v) {
+        if (encryptMode != 'none' && v!.trim().isEmpty) return 'Encryption key required';
+        return null;
+      }),
+      const SizedBox(height: 12),
+      TextFormField(controller: localPortController, enabled: !readOnly, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Local port'), validator: (v) {
+        final p = int.tryParse(v!.trim());
+        if (p == null || p < 1 || p > 65535) return 'Port 1-65535';
+        return null;
+      }),
+    ]))));
   }
 }
 
 class _DiagnosticsCard extends StatelessWidget {
-  const _DiagnosticsCard({
-    required this.lastProbeResult,
-    required this.lastProbeError,
-    required this.lastProbeAt,
-    required this.onOpenIpCheck,
-  });
-
+  const _DiagnosticsCard({required this.lastProbeResult, required this.lastProbeError, required this.lastProbeAt, required this.onOpenIpCheck});
   final String? lastProbeResult;
   final String? lastProbeError;
   final DateTime? lastProbeAt;
   final VoidCallback onOpenIpCheck;
-
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final probeStatus = lastProbeError != null
-        ? 'Failed'
-        : lastProbeResult != null
-        ? 'OK'
-        : 'Not tested';
-    final probeDetail =
-        lastProbeError ?? lastProbeResult ?? 'Run test to verify.';
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Diagnostics', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            _InfoRow(
-              label: 'Test status',
-              value: probeStatus,
-              valueColor: lastProbeError != null
-                  ? colorScheme.error
-                  : lastProbeResult != null
-                  ? colorScheme.primary
-                  : colorScheme.onSurface.withValues(alpha: 0.6),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              probeDetail,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurface.withValues(alpha: 0.7),
-              ),
-            ),
-            const SizedBox(height: 10),
-            _InfoRow(
-              label: 'Last test',
-              value: lastProbeAt == null
-                  ? '—'
-                  : '${lastProbeAt!.hour.toString().padLeft(2, '0')}:${lastProbeAt!.minute.toString().padLeft(2, '0')}:${lastProbeAt!.second.toString().padLeft(2, '0')}',
-            ),
-            const SizedBox(height: 10),
-            TextButton.icon(
-              onPressed: onOpenIpCheck,
-              icon: const Icon(Icons.open_in_new),
-              label: const Text('Open IP check in browser'),
-            ),
-          ],
-        ),
-      ),
-    );
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Diagnostics', style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 12),
+      Text('Test status: ${lastProbeError != null ? 'Failed' : lastProbeResult != null ? 'OK' : 'Not tested'}'),
+      const SizedBox(height: 6),
+      Text(lastProbeError ?? lastProbeResult ?? 'Run test to verify.'),
+      const SizedBox(height: 10),
+      Text('Last test: ${lastProbeAt == null ? '—' : lastProbeAt.toString()}'),
+      const SizedBox(height: 10),
+      TextButton.icon(onPressed: onOpenIpCheck, icon: const Icon(Icons.open_in_new), label: const Text('Open IP check')),
+    ])));
   }
 }
 
 class _LogsCard extends StatelessWidget {
   const _LogsCard({required this.lines});
-
   final List<String> lines;
-
   @override
   Widget build(BuildContext context) {
-    final text = lines.isEmpty ? 'No logs yet.' : lines.join('\n');
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Logs', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              constraints: const BoxConstraints(minHeight: 120),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: SingleChildScrollView(
-                child: SelectableText(
-                  text,
-                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value, this.valueColor});
-
-  final String label;
-  final String value;
-  final Color? valueColor;
-
-  @override
-  Widget build(BuildContext context) {
-    final labelStyle = Theme.of(context).textTheme.labelMedium?.copyWith(
-      color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
-    );
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final isNarrow = constraints.maxWidth < 360;
-        final valueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
-          color: valueColor ?? Theme.of(context).colorScheme.onSurface,
-        );
-        if (isNarrow) {
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: labelStyle),
-                const SizedBox(height: 2),
-                Text(value, style: valueStyle),
-              ],
-            ),
-          );
-        }
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Row(
-            children: [
-              SizedBox(width: 110, child: Text(label, style: labelStyle)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  value,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: valueStyle,
-                ),
-              ),
-            ],
-          );
-        );
-      },
-    );
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Logs', style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 12),
+      Container(width: double.infinity, padding: const EdgeInsets.all(12), constraints: const BoxConstraints(minHeight: 120), decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)), child: SelectableText(lines.isEmpty ? 'No logs yet.' : lines.join('\n'), style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
+    ])));
   }
 }
