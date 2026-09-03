@@ -96,8 +96,8 @@ class TunnelConfig {
 
   static TunnelConfig parse(String uriText) {
     final uri = Uri.parse(uriText.trim());
-    if (uri.scheme != 'pingtunnel') {
-      throw const FormatException('URI scheme must be pingtunnel://');
+    if (uri.scheme != 'princ') {
+      throw const FormatException('URI scheme must be princ://');
     }
 
     String host = uri.host;
