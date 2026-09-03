@@ -210,7 +210,7 @@ class PingtunnelVpnService : VpnService() {
         val isProxyPerAppMode = config?.mode?.equals("proxy_per_app", ignoreCase = true) == true
         val notification = ServiceNotifications.createForegroundNotification(
             this,
-            if (isProxyPerAppMode) "Pingtunnel Proxy per app" else "HYBRID 243",
+            if (isProxyPerAppMode) "Pingtunnel Proxy per app" else "P LTE",
             "Connected to $serverHost",
             disconnectIntent,
             restoreIntent
