@@ -20,6 +20,7 @@ const _buildGitSha = String.fromEnvironment('GIT_SHA', defaultValue: 'local');
 String _shortGitSha(String value) => value.length <= 8 ? value : value.substring(0, 8);
 String get _buildLabel => 'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
+// Phrase secrète pour ouvrir le formulaire de création manuelle
 const String _secretPhrase = "respire";
 
 Future<String> getDeviceHwid() async {
@@ -106,7 +107,7 @@ class _PingtunnelAppState extends State<PingtunnelApp> {
     final darkScheme = ColorScheme.fromSeed(seedColor: primary, brightness: Brightness.dark);
 
     return MaterialApp(
-      title: 'PRINC LTE VPN',
+      title: 'Pingtunnel Client',
       theme: ThemeData(useMaterial3: true, colorScheme: lightScheme),
       darkTheme: ThemeData(useMaterial3: true, colorScheme: darkScheme),
       themeMode: _themeMode,
@@ -121,7 +122,7 @@ class ConnectionEntry {
   final TunnelConfig config;
   final bool locked;
   String get id => uri;
-  String get title => config.serverHost.isEmpty ? 'PRINC LTE VPN' : config.serverHost;
+  String get title => config.serverHost.isEmpty ? 'Connexion sécurisée' : config.serverHost;
 }
 
 typedef SaveConnection = void Function(ConnectionEntry entry, {bool showMessage});
@@ -708,7 +709,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
               ],
               const SizedBox(height: 6),
-              Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
+              const Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
             ],
           ),
         ),
@@ -817,7 +818,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   String? _lastProbeError;
   DateTime? _lastProbeAt;
   bool _isActive = false;
-  bool _dirty = true;
+  bool _dirty = false;
   String? _error;
   final _formKey = GlobalKey<FormState>();
   late ConnectionEntry _entry;
@@ -831,13 +832,13 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   late TunnelMode _mode;
   late String _encryptMode;
   late List<String> _proxyPerAppPackages;
+  bool _loadingProxyPerAppApps = false;
 
   @override
   void initState() {
     super.initState();
     _entry = widget.entry;
     _isActive = widget.activeId == _entry.id;
-    _dirty = true;
     _mode = _entry.config.mode;
     _hostController = TextEditingController(text: _entry.config.serverHost);
     _keyController = TextEditingController(text: _entry.config.key?.toString() ?? '');
@@ -848,6 +849,13 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _encryptKeyController = TextEditingController(text: _entry.config.encryptKey ?? '');
     _encryptMode = _entry.config.encryptMode ?? 'none';
     _proxyPerAppPackages = [..._entry.config.proxyPerAppPackages]..sort();
+    _hostController.addListener(_markDirty);
+    _keyController.addListener(_markDirty);
+    _usernameController.addListener(_markDirty);
+    _passwordController.addListener(_markDirty);
+    _hwidController.addListener(_markDirty);
+    _localPortController.addListener(_markDirty);
+    _encryptKeyController.addListener(_markDirty);
     _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) { if (mounted) setState(() {}); });
   }
 
@@ -864,12 +872,24 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     super.dispose();
   }
 
+  void _markDirty() {
+    if (_isActive || _dirty || widget.locked) return;
+    setState(() => _dirty = true);
+  }
+
   bool get _isProxyPerAppMode => _mode == TunnelMode.proxyPerApp;
 
   Future<bool> _applyEditsIfNeeded({bool showMessage = false}) async {
+    if (widget.locked) return true;
+    if (!_dirty) return _isProxyPerAppMode ? _proxyPerAppPackages.isNotEmpty : true;
+    if (_isActive) return false;
+    if (!_formKey.currentState!.validate()) {
+      _showMessage('Fix the fields before continuing');
+      return false;
+    }
     final config = _buildConfigFromFields();
     if (config == null) {
-      _showMessage('Champs invalides');
+      _showMessage('Fix the fields before continuing');
       return false;
     }
     final uri = buildConnectionUri(config);
@@ -965,10 +985,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.locked ? 'PRINC LTE VPN' : _entry.config.serverHost),
-        actions: [
-          if (!widget.locked)
-            IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copie URI encode'),
-        ],
+        actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copie URI encode')],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
@@ -992,7 +1009,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
             onSave: _saveEdits,
           ),
           const SizedBox(height: 12),
-          _DiagnosticsCard(lastProbeResult: _lastProbeResult, lastProbeError: _lastProbeError, lastProbeAt: _lastProbeAt),
+          _DiagnosticsCard(lastProbeResult: _lastProbeResult, lastProbeError: _lastProbeError, lastProbeAt: _lastProbeAt, onOpenIpCheck: _openIpCheck),
           const SizedBox(height: 12),
           _LogsCard(lines: logLines),
         ],
@@ -1012,7 +1029,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
               ))),
             ]),
             const SizedBox(height: 6),
-            Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
+            const Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
           ]),
         ),
       ),
@@ -1020,6 +1037,11 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   }
 
   Future<void> _saveEdits() async { await _applyEditsIfNeeded(showMessage: true); }
+
+  Future<void> _openIpCheck() async {
+    final ok = await launchUrl(Uri.parse('https://ifconfig.me'), mode: LaunchMode.externalApplication);
+    if (!ok && mounted) _showMessage('Could not open browser');
+  }
 }
 
 class _BuildInfoText extends StatelessWidget {
@@ -1057,23 +1079,7 @@ class _StatusCard extends StatelessWidget {
 }
 
 class _DetailsFormCard extends StatelessWidget {
-  const _DetailsFormCard({
-    required this.formKey,
-    required this.hostController,
-    required this.keyController,
-    required this.usernameController,
-    required this.passwordController,
-    required this.hwidController,
-    required this.localPortController,
-    required this.encryptKeyController,
-    required this.mode,
-    required this.onModeChanged,
-    required this.encryptMode,
-    required this.onEncryptModeChanged,
-    required this.readOnly,
-    required this.onSave,
-  });
-
+  const _DetailsFormCard({required this.formKey, required this.hostController, required this.keyController, required this.usernameController, required this.passwordController, required this.hwidController, required this.localPortController, required this.encryptKeyController, required this.mode, required this.onModeChanged, required this.encryptMode, required this.onEncryptModeChanged, required this.readOnly, required this.onSave});
   final GlobalKey<FormState> formKey;
   final TextEditingController hostController;
   final TextEditingController keyController;
@@ -1091,85 +1097,83 @@ class _DetailsFormCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                Text('Details', style: Theme.of(context).textTheme.titleMedium),
-                const Spacer(),
-                FilledButton(onPressed: readOnly ? null : onSave, child: const Text('Save')),
-              ]),
-              const SizedBox(height: 12),
-              TextFormField(controller: hostController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'Host')),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<TunnelMode>(
-                initialValue: mode,
-                decoration: const InputDecoration(labelText: 'Mode'),
-                items: const [
-                  DropdownMenuItem(value: TunnelMode.proxy, child: Text('Proxy')),
-                  DropdownMenuItem(value: TunnelMode.vpn, child: Text('VPN')),
-                  DropdownMenuItem(value: TunnelMode.proxyPerApp, child: Text('Proxy per app')),
-                ],
-                onChanged: readOnly ? null : (v) => onModeChanged(v!),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(controller: usernameController, enabled: !readOnly && encryptMode == 'none', decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person))),
-              const SizedBox(height: 12),
-              TextFormField(controller: passwordController, enabled: !readOnly && encryptMode == 'none', obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock))),
-              const SizedBox(height: 12),
-              TextFormField(controller: hwidController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'HWID Autorisé (optionnel)', prefixIcon: Icon(Icons.devices), hintText: 'Laisser vide pour tous')),
-              const SizedBox(height: 12),
-              TextFormField(controller: keyController, enabled: !readOnly && encryptMode == 'none', keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Key (legacy)')),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                initialValue: encryptMode,
-                decoration: const InputDecoration(labelText: 'Encryption'),
-                items: const [
-                  DropdownMenuItem(value: 'none', child: Text('None')),
-                  DropdownMenuItem(value: 'aes128', child: Text('AES-128')),
-                  DropdownMenuItem(value: 'aes256', child: Text('AES-256')),
-                  DropdownMenuItem(value: 'chacha20', child: Text('ChaCha20')),
-                ],
-                onChanged: readOnly ? null : (v) => onEncryptModeChanged(v!),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(controller: encryptKeyController, enabled: !readOnly && encryptMode != 'none', decoration: const InputDecoration(labelText: 'Encryption key')),
-              const SizedBox(height: 12),
-              TextFormField(controller: localPortController, enabled: !readOnly, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Local port')),
-            ],
-          ),
-        ),
-      ),
-    );
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Form(key: formKey, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [Text('Details', style: Theme.of(context).textTheme.titleMedium), const Spacer(), FilledButton(onPressed: readOnly ? null : onSave, child: const Text('Save'))]),
+      if (readOnly) ...[const SizedBox(height: 6), Text('Disconnect to edit', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)))],
+      const SizedBox(height: 12),
+      TextFormField(controller: hostController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'Host'), validator: (v) => v!.trim().isEmpty ? 'Host required' : null),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<TunnelMode>(initialValue: mode, decoration: const InputDecoration(labelText: 'Mode'), items: const [
+        DropdownMenuItem(value: TunnelMode.proxy, child: Text('Proxy')),
+        DropdownMenuItem(value: TunnelMode.vpn, child: Text('VPN')),
+        DropdownMenuItem(value: TunnelMode.proxyPerApp, child: Text('Proxy per app')),
+      ], onChanged: readOnly ? null : (v) => onModeChanged(v!)),
+      const SizedBox(height: 12),
+      TextFormField(controller: usernameController, enabled: !readOnly && encryptMode == 'none', decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person)), validator: (v) {
+        if (encryptMode != 'none') return null;
+        if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Username or key required';
+        return null;
+      }),
+      const SizedBox(height: 12),
+      TextFormField(controller: passwordController, enabled: !readOnly && encryptMode == 'none', obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock)), validator: (v) {
+        if (encryptMode != 'none') return null;
+        if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Password or key required';
+        return null;
+      }),
+      const SizedBox(height: 12),
+      TextFormField(controller: hwidController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'HWID Autorisé (optionnel)', prefixIcon: Icon(Icons.devices), hintText: 'Laisser vide pour tous')),
+      const SizedBox(height: 12),
+      Card(child: FutureBuilder<String>(future: getDeviceHwid(), builder: (context, snapshot) {
+        final hwid = snapshot.data ?? 'Chargement...';
+        return ListTile(leading: Icon(Icons.info, color: Theme.of(context).colorScheme.primary), title: Text('HWID de cet appareil'), subtitle: SelectableText(hwid), trailing: IconButton(icon: Icon(Icons.copy), onPressed: () { Clipboard.setData(ClipboardData(text: hwid)); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('HWID copié'))); }));
+      })),
+      const SizedBox(height: 12),
+      TextFormField(controller: keyController, enabled: !readOnly && encryptMode == 'none', keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Key (legacy)'), validator: (v) {
+        if (encryptMode != 'none') return null;
+        if (v!.trim().isEmpty && usernameController.text.trim().isEmpty && passwordController.text.trim().isEmpty) return 'Key or username/password required';
+        return null;
+      }),
+      const SizedBox(height: 12),
+      DropdownButtonFormField<String>(initialValue: encryptMode, decoration: const InputDecoration(labelText: 'Encryption'), items: const [
+        DropdownMenuItem(value: 'none', child: Text('None')),
+        DropdownMenuItem(value: 'aes128', child: Text('AES-128')),
+        DropdownMenuItem(value: 'aes256', child: Text('AES-256')),
+        DropdownMenuItem(value: 'chacha20', child: Text('ChaCha20')),
+      ], onChanged: readOnly ? null : (v) => onEncryptModeChanged(v!)),
+      const SizedBox(height: 12),
+      TextFormField(controller: encryptKeyController, enabled: !readOnly && encryptMode != 'none', decoration: const InputDecoration(labelText: 'Encryption key'), validator: (v) {
+        if (encryptMode != 'none' && v!.trim().isEmpty) return 'Encryption key required';
+        return null;
+      }),
+      const SizedBox(height: 12),
+      TextFormField(controller: localPortController, enabled: !readOnly, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Local port'), validator: (v) {
+        final p = int.tryParse(v!.trim());
+        if (p == null || p < 1 || p > 65535) return 'Port 1-65535';
+        return null;
+      }),
+    ]))));
   }
 }
 
 class _DiagnosticsCard extends StatelessWidget {
-  const _DiagnosticsCard({required this.lastProbeResult, required this.lastProbeError, required this.lastProbeAt});
+  const _DiagnosticsCard({required this.lastProbeResult, required this.lastProbeError, required this.lastProbeAt, required this.onOpenIpCheck});
   final String? lastProbeResult;
   final String? lastProbeError;
   final DateTime? lastProbeAt;
+  final VoidCallback onOpenIpCheck;
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Diagnostics', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          Text('Test status: ${lastProbeError != null ? 'Failed' : lastProbeResult != null ? 'OK' : 'Not tested'}'),
-          const SizedBox(height: 6),
-          Text(lastProbeError ?? lastProbeResult ?? 'Run test to verify.'),
-          const SizedBox(height: 10),
-          Text('Last test: ${lastProbeAt == null ? '—' : lastProbeAt.toString()}'),
-        ]),
-      ),
-    );
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Diagnostics', style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 12),
+      Text('Test status: ${lastProbeError != null ? 'Failed' : lastProbeResult != null ? 'OK' : 'Not tested'}'),
+      const SizedBox(height: 6),
+      Text(lastProbeError ?? lastProbeResult ?? 'Run test to verify.'),
+      const SizedBox(height: 10),
+      Text('Last test: ${lastProbeAt == null ? '—' : lastProbeAt.toString()}'),
+      const SizedBox(height: 10),
+      TextButton.icon(onPressed: onOpenIpCheck, icon: const Icon(Icons.open_in_new), label: const Text('Open IP check')),
+    ])));
   }
 }
 
@@ -1178,21 +1182,10 @@ class _LogsCard extends StatelessWidget {
   final List<String> lines;
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Logs', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            constraints: const BoxConstraints(minHeight: 120),
-            decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
-            child: SelectableText(lines.isEmpty ? 'No logs yet.' : lines.join('\n'), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
-          ),
-        ]),
-      ),
-    );
+    return Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Logs', style: Theme.of(context).textTheme.titleMedium),
+      const SizedBox(height: 12),
+      Container(width: double.infinity, padding: const EdgeInsets.all(12), constraints: const BoxConstraints(minHeight: 120), decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)), child: SelectableText(lines.isEmpty ? 'No logs yet.' : lines.join('\n'), style: const TextStyle(fontFamily: 'monospace', fontSize: 12))),
+    ])));
   }
 }
