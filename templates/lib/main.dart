@@ -986,7 +986,10 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.locked ? 'Connexion sécurisée' : _entry.config.serverHost),
-        actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copier URI')],
+        actions: [
+          if (!widget.locked)
+            IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copier URI'),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
@@ -1010,7 +1013,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
             onSave: _saveEdits,
           ),
           const SizedBox(height: 12),
-          _DiagnosticsCard(lastProbeResult: _lastProbeResult, lastProbeError: _lastProbeError, lastProbeAt: _lastProbeAt, onOpenIpCheck: _openIpCheck),
+          _DiagnosticsCard(lastProbeResult: _lastProbeResult, lastProbeError: _lastProbeError, lastProbeAt: _lastProbeAt),
           const SizedBox(height: 12),
           _LogsCard(lines: logLines),
         ],
@@ -1038,11 +1041,6 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   }
 
   Future<void> _saveEdits() async { await _applyEditsIfNeeded(showMessage: true); }
-
-  Future<void> _openIpCheck() async {
-    final ok = await launchUrl(Uri.parse('https://ifconfig.me'), mode: LaunchMode.externalApplication);
-    if (!ok && mounted) _showMessage('Could not open browser');
-  }
 }
 
 class _BuildInfoText extends StatelessWidget {
@@ -1128,7 +1126,7 @@ class _DetailsFormCard extends StatelessWidget {
                 FilledButton(onPressed: readOnly ? null : onSave, child: const Text('Save')),
               ]),
               const SizedBox(height: 12),
-              TextFormField(controller: hostController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'Host'), validator: (v) => v!.trim().isEmpty ? 'Host required' : null),
+              TextFormField(controller: hostController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'Host')),
               const SizedBox(height: 12),
               DropdownButtonFormField<TunnelMode>(
                 initialValue: mode,
@@ -1141,26 +1139,13 @@ class _DetailsFormCard extends StatelessWidget {
                 onChanged: readOnly ? null : (v) => onModeChanged(v!),
               ),
               const SizedBox(height: 12),
-              TextFormField(controller: usernameController, enabled: !readOnly && encryptMode == 'none', decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person)), validator: (v) {
-                if (encryptMode != 'none') return null;
-                if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Username or key required';
-                return null;
-              }),
+              TextFormField(controller: usernameController, enabled: !readOnly && encryptMode == 'none', decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person))),
               const SizedBox(height: 12),
-              TextFormField(controller: passwordController, enabled: !readOnly && encryptMode == 'none', obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock)), validator: (v) {
-                if (encryptMode != 'none') return null;
-                if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Password or key required';
-                return null;
-              }),
+              TextFormField(controller: passwordController, enabled: !readOnly && encryptMode == 'none', obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock))),
               const SizedBox(height: 12),
               TextFormField(controller: hwidController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'HWID Autorisé (optionnel)', prefixIcon: Icon(Icons.devices), hintText: 'Laisser vide pour tous')),
               const SizedBox(height: 12),
-              TextFormField(controller: keyController, enabled: !readOnly && encryptMode == 'none', keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Key (legacy)'), validator: (v) {
-                if (encryptMode != 'none') return null;
-                if (v!.trim().isEmpty && usernameController.text.trim().isEmpty && passwordController.text.trim().isEmpty) return 'Key or username/password required';
-                if (v.trim().isNotEmpty && int.tryParse(v.trim()) == null) return 'Key must be a number';
-                return null;
-              }),
+              TextFormField(controller: keyController, enabled: !readOnly && encryptMode == 'none', keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Key (legacy)')),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 initialValue: encryptMode,
@@ -1174,16 +1159,9 @@ class _DetailsFormCard extends StatelessWidget {
                 onChanged: readOnly ? null : (v) => onEncryptModeChanged(v!),
               ),
               const SizedBox(height: 12),
-              TextFormField(controller: encryptKeyController, enabled: !readOnly && encryptMode != 'none', decoration: const InputDecoration(labelText: 'Encryption key'), validator: (v) {
-                if (encryptMode != 'none' && v!.trim().isEmpty) return 'Encryption key required';
-                return null;
-              }),
+              TextFormField(controller: encryptKeyController, enabled: !readOnly && encryptMode != 'none', decoration: const InputDecoration(labelText: 'Encryption key')),
               const SizedBox(height: 12),
-              TextFormField(controller: localPortController, enabled: !readOnly, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Local port'), validator: (v) {
-                final p = int.tryParse(v!.trim());
-                if (p == null || p < 1 || p > 65535) return 'Port 1-65535';
-                return null;
-              }),
+              TextFormField(controller: localPortController, enabled: !readOnly, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Local port')),
             ],
           ),
         ),
@@ -1193,11 +1171,10 @@ class _DetailsFormCard extends StatelessWidget {
 }
 
 class _DiagnosticsCard extends StatelessWidget {
-  const _DiagnosticsCard({required this.lastProbeResult, required this.lastProbeError, required this.lastProbeAt, required this.onOpenIpCheck});
+  const _DiagnosticsCard({required this.lastProbeResult, required this.lastProbeError, required this.lastProbeAt});
   final String? lastProbeResult;
   final String? lastProbeError;
   final DateTime? lastProbeAt;
-  final VoidCallback onOpenIpCheck;
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -1211,8 +1188,6 @@ class _DiagnosticsCard extends StatelessWidget {
           Text(lastProbeError ?? lastProbeResult ?? 'Run test to verify.'),
           const SizedBox(height: 10),
           Text('Last test: ${lastProbeAt == null ? '—' : lastProbeAt.toString()}'),
-          const SizedBox(height: 10),
-          TextButton.icon(onPressed: onOpenIpCheck, icon: const Icon(Icons.open_in_new), label: const Text('Open IP check')),
         ]),
       ),
     );
