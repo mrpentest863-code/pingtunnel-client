@@ -56,6 +56,17 @@ Future<String> getDeviceHwid() async {
   return digest.toString().substring(0, 32);
 }
 
+// Vérifier si le proxy SOCKS local est accessible
+Future<bool> _checkSocksProxy(int port) async {
+  try {
+    final socket = await Socket.connect('127.0.0.1', port, timeout: Duration(seconds: 5));
+    socket.destroy();
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isLinux) await windowManager.ensureInitialized();
@@ -295,8 +306,14 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
       try {
         await _controller.stop();
         await _controller.start(updated.config);
-        await Future.delayed(Duration(seconds: 4));
-        setState(() => _activeId = updated.id);
+        final isConnected = await _checkSocksProxy(updated.config.localSocksPort);
+        if (isConnected) {
+          setState(() => _activeId = updated.id);
+        } else {
+          await _controller.stop();
+          setState(() => _activeId = null);
+          _showMessage('Failed to connect');
+        }
       } catch (err) {
         setState(() => _activeId = null);
         _showMessage('Failed to switch mode: $err');
@@ -506,11 +523,16 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
       if (_activeId != null && _activeId != entry.id) await _controller.stop();
       await _controller.start(entry.config);
       
-      // Attendre 4 secondes que le tunnel soit réellement connecté
-      await Future.delayed(Duration(seconds: 4));
+      // Vérifier si le proxy SOCKS local est accessible
+      final isConnected = await _checkSocksProxy(entry.config.localSocksPort);
       
-      setState(() => _activeId = entry.id);
-      _scheduleLinuxTrayRefresh();
+      if (isConnected) {
+        setState(() => _activeId = entry.id);
+        _scheduleLinuxTrayRefresh();
+      } else {
+        await _controller.stop();
+        _showMessage('Impossible de se connecter au serveur');
+      }
     } catch (err) {
       _showMessage(err.toString());
     }
@@ -918,11 +940,16 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
       if (!_isActive && widget.controller.status == TunnelStatus.connected) await widget.controller.stop();
       await widget.controller.start(_entry.config);
       
-      // Attendre 4 secondes que le tunnel soit réellement connecté
-      await Future.delayed(Duration(seconds: 4));
+      // Vérifier si le proxy SOCKS local est accessible
+      final isConnected = await _checkSocksProxy(_entry.config.localSocksPort);
       
-      setState(() => _isActive = true);
-      widget.onActiveChanged(_entry.id);
+      if (isConnected) {
+        setState(() => _isActive = true);
+        widget.onActiveChanged(_entry.id);
+      } else {
+        await widget.controller.stop();
+        setState(() => _error = 'Impossible de se connecter au serveur');
+      }
     } catch (err) {
       setState(() => _error = err.toString());
     }
