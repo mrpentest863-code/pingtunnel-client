@@ -1,132 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 
 enum TunnelMode { proxy, vpn, proxyPerApp }
 
+// Clé secrète pour le chiffrement
 const String _secretKey = "PingTunnelSecretKey2024!";
-
-// Liste de 2048 mots français intégrée dans le code
-const List<String> _wordList = [
-  "abandon", "abattre", "abri", "absent", "absolu", "absorber", "abuser", "acier",
-  "acteur", "adapter", "adresse", "affaire", "affirmer", "afin", "agir", "agiter",
-  "aider", "aile", "ailleurs", "aimer", "ainsi", "ajouter", "album", "aller",
-  "alors", "amener", "ami", "amour", "amusant", "an", "ancien", "animal",
-  "annee", "annonce", "apercevoir", "appeler", "apporter", "apprendre", "arbre", "argent",
-  "arme", "arracher", "arriver", "article", "asile", "asseoir", "assister", "assurer",
-  "attacher", "atteindre", "attendre", "aucun", "augmenter", "aussi", "auteur", "auto",
-  "autre", "avancer", "avant", "avec", "avenir", "avis", "avoir", "avouer",
-  "bague", "balai", "balle", "banane", "bande", "banque", "barbe", "bas",
-  "bateau", "battre", "beau", "beaucoup", "bebe", "besoin", "bete", "bien",
-  "bientot", "billet", "blanc", "bleu", "boire", "bois", "bon", "bonjour",
-  "bord", "bouche", "bouger", "bout", "branche", "bras", "brave", "briser",
-  "bruit", "bruler", "brun", "buisson", "bureau", "but", "cabane", "cacher",
-  "cadeau", "cafe", "cahier", "calculer", "calme", "camarade", "camp", "canard",
-  "capable", "car", "carte", "cas", "casser", "cause", "ce", "cela",
-  "celui", "cent", "cependant", "certain", "chaine", "chaise", "chambre", "champ",
-  "chance", "changer", "chanter", "chaque", "charger", "chasser", "chat", "chaud",
-  "chaussure", "chef", "chemin", "chemise", "cher", "chercher", "cheval", "cheveu",
-  "chez", "chien", "chiffre", "choisir", "chose", "ciel", "cinema", "ciseau",
-  "clair", "classe", "cle", "coeur", "coin", "colere", "colline", "combat",
-  "combien", "commander", "comme", "commencer", "comment", "commun", "comprendre", "compter",
-  "conduire", "confiance", "connaitre", "conseil", "content", "continuer", "contre", "copain",
-  "coq", "corps", "cote", "coton", "coucher", "couleur", "coup", "couper",
-  "cour", "courir", "cours", "court", "couteau", "couvrir", "craindre", "crayon",
-  "creuser", "crier", "croire", "cru", "cuisine", "cuisiner", "culotte", "curieux",
-  "dame", "danger", "dans", "danser", "date", "de", "debut", "decider",
-  "decouvrir", "dedans", "dehors", "deja", "delicat", "demain", "demander", "dent",
-  "depart", "depenser", "dernier", "derriere", "des", "desert", "desirer", "dessiner",
-  "dessous", "dessus", "deux", "devant", "devenir", "devoir", "dieu", "dimanche",
-  "diner", "dire", "discours", "disparaitre", "docteur", "doigt", "donc", "donner",
-  "dormir", "dos", "douce", "doute", "doux", "douze", "droit", "droite",
-  "dur", "eau", "ecole", "ecouter", "ecrire", "effort", "egal", "eglise",
-  "electricite", "elephant", "eleve", "elle", "embrasser", "emmener", "employer", "en",
-  "encore", "endroit", "enfant", "enfin", "enlever", "ennemi", "ensemble", "ensuite",
-  "entendre", "entier", "entre", "entrer", "envie", "environ", "envoyer", "epais",
-  "epaule", "epoque", "erreur", "escalier", "espace", "espece", "esperer", "essayer",
-  "essence", "est", "et", "etage", "ete", "etendre", "etoile", "etrange",
-  "etre", "etudier", "eux", "eveiller", "evenement", "eviter", "exact", "examen",
-  "excuser", "exemple", "exister", "experience", "expliquer", "exprimer", "face", "facile",
-  "facon", "faible", "faim", "faire", "fait", "falloir", "famille", "fatigue",
-  "faute", "femme", "fenetre", "fer", "ferme", "fermer", "fete", "feu",
-  "feuille", "fier", "fievre", "figure", "fil", "fille", "film", "fils",
-  "fin", "finir", "fleche", "fleur", "flot", "foi", "fois", "fond",
-  "football", "force", "foret", "forme", "fort", "fou", "foule", "frais",
-  "framboise", "francais", "frapper", "freiner", "frere", "froid", "fromage", "front",
-  "fruit", "fuir", "fumer", "fusil", "gagner", "garage", "garcon", "garde",
-  "gauche", "geler", "gens", "gentil", "glace", "glisser", "gorge", "gout",
-  "goutte", "grand", "grandir", "gras", "gris", "gros", "groupe", "guerre",
-  "habiller", "habiter", "habitude", "haut", "herbe", "heure", "heureux", "hier",
-  "histoire", "hiver", "homme", "honte", "horloge", "hors", "hotel", "huit",
-  "humain", "ici", "idee", "il", "ile", "image", "immense", "important",
-  "incroyable", "indiquer", "instant", "interdire", "inviter", "jamais", "jambe", "jardin",
-  "jaune", "je", "jeter", "jeu", "jeune", "joie", "joli", "jouer",
-  "jour", "journal", "jus", "jusqu", "juste", "la", "labourer", "lac",
-  "laid", "laine", "laisser", "lait", "langue", "lapin", "large", "laver",
-  "le", "lecture", "leger", "legume", "lent", "lettre", "leur", "lever",
-  "liberte", "libre", "lien", "lieu", "ligne", "limite", "lire", "lit",
-  "livre", "loin", "long", "longtemps", "lorsque", "louer", "lourd", "lui",
-  "lumiere", "lundi", "lune", "lutte", "machine", "madame", "magasin", "main",
-  "maintenant", "mais", "maison", "mal", "maladie", "malgre", "maman", "manger",
-  "manquer", "manteau", "marcher", "mardi", "mari", "matin", "mauvais", "me",
-  "medecin", "meilleur", "meme", "mener", "mensonge", "mer", "merci", "mere",
-  "mesure", "mettre", "meuble", "midi", "mieux", "milieu", "mille", "million",
-  "mince", "mine", "minuit", "minute", "moi", "moins", "mois", "monde",
-  "monsieur", "montagne", "monter", "montre", "morceau", "mot", "moteur", "mou",
-  "mourir", "mouton", "moyen", "muet", "mur", "musique", "nager", "naissance",
-  "nappe", "nature", "ne", "neige", "nerveux", "neuf", "nez", "ni",
-  "nid", "noir", "nom", "nombre", "non", "nord", "note", "notre",
-  "nous", "nouveau", "nuage", "nuit", "numero", "objet", "occuper", "oeil",
-  "oeuf", "offrir", "oiseau", "oncle", "ont", "onze", "or", "orange",
-  "ordre", "oreille", "orner", "os", "ou", "oublier", "ouest", "oui",
-  "ouvert", "ouvrir", "pain", "paix", "palais", "panier", "papa", "papier",
-  "par", "parapluie", "parc", "parce", "pardon", "parent", "parfois", "parler",
-  "parmi", "part", "partir", "parvenir", "pas", "passer", "patron", "paupiere",
-  "payer", "pays", "peau", "peche", "peindre", "peine", "peler", "pelle",
-  "pendant", "penser", "perdre", "pere", "permettre", "personne", "petit", "peu",
-  "peur", "photo", "phrase", "piece", "pied", "pierre", "pigeon", "pile",
-  "pinceau", "pipe", "piscine", "place", "plafond", "plage", "plaindre", "plaire",
-  "plaisir", "plan", "planche", "plante", "plat", "plein", "pleurer", "pluie",
-  "plus", "plusieurs", "poche", "poele", "poeme", "poesie", "poignet", "point",
-  "poire", "poisson", "police", "pomme", "pont", "port", "porte", "porter",
-  "poser", "possible", "pot", "poule", "pour", "pousser", "poussiere", "pouvoir",
-  "precis", "prefere", "premier", "prendre", "pres", "presque", "pret", "preter",
-  "prevoir", "prier", "prix", "probleme", "prochain", "produire", "professeur", "profond",
-  "promener", "promettre", "propre", "puis", "pull", "quand", "quant", "quarante",
-  "quatre", "que", "quel", "quelque", "question", "queue", "qui", "quinze",
-  "quitter", "quoi", "race", "raconter", "radio", "raison", "ramasser", "rapide",
-  "rappeler", "rare", "raser", "rasoir", "recevoir", "recherche", "recompense", "reconnaitre",
-  "reculer", "refuser", "regarder", "regle", "rein", "remarquer", "remplir", "rencontrer",
-  "rendre", "rentrer", "repondre", "reposer", "rester", "retard", "retenir", "retour",
-  "retrouver", "reunion", "reussir", "reve", "reveiller", "revenir", "rever", "rien",
-  "rire", "riviere", "riz", "robe", "roche", "roi", "rose", "roue",
-  "rouge", "route", "ruban", "sable", "sac", "sage", "saigner", "sain",
-  "saison", "sale", "salle", "salut", "samedi", "sang", "sans", "sante",
-  "sauter", "sauver", "savoir", "savon", "scene", "science", "se", "seau",
-  "sec", "seche", "secret", "seigneur", "sein", "seize", "sel", "selon",
-  "semaine", "sembler", "semer", "sens", "sentence", "sentir", "separer", "sept",
-  "serpent", "serrer", "service", "servir", "seul", "seulement", "siecle", "sien",
-  "siffler", "signe", "simple", "singe", "sinon", "site", "six", "soeur",
-  "soif", "soin", "soir", "soixante", "sol", "soldat", "soleil", "sombre",
-  "somme", "sommeil", "son", "songer", "sortir", "sou", "soudain", "souffrir",
-  "souhaiter", "soulever", "soulier", "soupe", "sourire", "sous", "souvent", "sport",
-  "stylo", "sucre", "sud", "suffire", "suivre", "sujet", "super", "sur",
-  "surement", "surface", "surprendre", "surtout", "surveiller", "sympa", "table", "tache",
-  "tante", "tapis", "tard", "tas", "tasse", "te", "tel", "telephone",
-  "television", "temps", "tendre", "tenir", "tenter", "terminer", "terre", "tete",
-  "the", "ticket", "tien", "timbre", "tirer", "tissu", "toi", "toile",
-  "toit", "tomate", "tomber", "ton", "tondre", "tortue", "tot", "toucher",
-  "toujours", "tour", "tourner", "tous", "tout", "trace", "train", "trait",
-  "tranquille", "transformer", "travail", "travailler", "traverser", "trembler", "trente", "tres",
-  "treize", "triste", "trop", "trou", "troupeau", "trouver", "tu", "tuer",
-  "type", "un", "usine", "utile", "vache", "vague", "vaincre", "vaisselle",
-  "valise", "vallee", "valoir", "vanter", "veau", "vedette", "veille", "velo",
-  "vendre", "vendredi", "venir", "vent", "ventre", "verifier", "veritable", "verre",
-  "vers", "vert", "veste", "vetement", "veuf", "veux", "viande", "victime",
-  "victoire", "vide", "vie", "vieux", "vif", "village", "ville", "vin",
-  "vingt", "violent", "visage", "vite", "vitesse", "vivre", "voici", "voie",
-  "voila", "voir", "voisin", "voiture", "voix", "voler", "volontiers", "vouloir",
-  "voyage", "vrai", "vue", "y", "yeux"
-];
 
 class TunnelConfig {
   TunnelConfig({
@@ -198,13 +75,19 @@ class TunnelConfig {
   }
 
   String serverAddress() {
-    if (serverPort == null) return serverHost;
+    if (serverPort == null) {
+      return serverHost;
+    }
     return "$serverHost:$serverPort";
   }
 
   int localProxyBackendSocksPort() {
-    if (localSocksPort < 1 || localSocksPort > 65535) return 1081;
-    if (localSocksPort == 65535) return 65534;
+    if (localSocksPort < 1 || localSocksPort > 65535) {
+      return 1081;
+    }
+    if (localSocksPort == 65535) {
+      return 65534;
+    }
     return localSocksPort + 1;
   }
 
@@ -231,55 +114,19 @@ class TunnelConfig {
     };
   }
 
+  // Encoder avec clé secrète
   String encode() {
     final jsonString = jsonEncode(toMap());
     final bytes = utf8.encode(jsonString);
     final encrypted = List<int>.generate(bytes.length, (i) {
       return bytes[i] ^ _secretKey.codeUnitAt(i % _secretKey.length);
     });
-    final compressed = gzip.encode(encrypted);
-    final bits = <int>[];
-    for (final byte in compressed) {
-      for (int i = 7; i >= 0; i--) {
-        bits.add((byte >> i) & 1);
-      }
-    }
-    while (bits.length % 11 != 0) {
-      bits.add(0);
-    }
-    final words = <String>[];
-    for (int i = 0; i < bits.length; i += 11) {
-      int index = 0;
-      for (int j = 0; j < 11; j++) {
-        index = (index << 1) | bits[i + j];
-      }
-      words.add(_wordList[index]);
-    }
-    return words.join('-');
+    return base64Url.encode(encrypted);
   }
 
-  static TunnelConfig decode(String phrase) {
-    final words = phrase.split('-');
-    final bits = <int>[];
-    for (final word in words) {
-      final index = _wordList.indexOf(word);
-      if (index < 0) throw FormatException('Mot inconnu: $word');
-      for (int i = 10; i >= 0; i--) {
-        bits.add((index >> i) & 1);
-      }
-    }
-    while (bits.length % 8 != 0) {
-      bits.removeLast();
-    }
-    final compressed = <int>[];
-    for (int i = 0; i < bits.length; i += 8) {
-      int byte = 0;
-      for (int j = 0; j < 8; j++) {
-        byte = (byte << 1) | bits[i + j];
-      }
-      compressed.add(byte);
-    }
-    final encrypted = gzip.decode(compressed);
+  // Décoder avec clé secrète
+  static TunnelConfig decode(String encoded) {
+    final encrypted = base64Url.decode(encoded);
     final decrypted = List<int>.generate(encrypted.length, (i) {
       return encrypted[i] ^ _secretKey.codeUnitAt(i % _secretKey.length);
     });
@@ -288,6 +135,7 @@ class TunnelConfig {
     return TunnelConfig.fromMap(map);
   }
 
+  // Créer depuis un map
   static TunnelConfig fromMap(Map<String, dynamic> map) {
     final modeStr = map['mode'] as String? ?? 'proxy';
     final mode = switch (modeStr) {
@@ -295,6 +143,7 @@ class TunnelConfig {
       'proxy_per_app' => TunnelMode.proxyPerApp,
       _ => TunnelMode.proxy,
     };
+    
     return TunnelConfig(
       serverHost: map['serverHost'] as String,
       serverPort: map['serverPort'] as int?,
@@ -318,10 +167,101 @@ class TunnelConfig {
     if (uri.scheme != 'princ') {
       throw const FormatException('URI scheme must be princ://');
     }
-    if (uri.host != 'p') {
-      throw const FormatException('Only princ://p/... is supported');
+
+    String host = uri.host;
+    
+    // Si c'est une URL encodée
+    if (host == 'encoded' || (host.isEmpty && uri.path.isNotEmpty)) {
+      final encoded = uri.path.replaceAll('/', '');
+      if (encoded.isNotEmpty) {
+        return decode(encoded);
+      }
     }
-    final phrase = uri.path.replaceAll('/', '');
-    return decode(phrase);
+    
+    if (host.isEmpty) {
+      host = uri.path;
+    }
+    if (host.isEmpty) {
+      throw const FormatException('Missing server host');
+    }
+
+    final params = uri.queryParameters;
+    final keyText = params['key'] ?? '';
+    final key = keyText.isEmpty ? null : int.tryParse(keyText);
+    final username = params['user'] ?? params['username'];
+    final password = params['pass'] ?? params['password'];
+    final hwid = params['hwid'];
+
+    final localPort =
+        int.tryParse(params['lport'] ?? params['local_port'] ?? '') ?? 1080;
+    final serverPort = int.tryParse(
+      params['port'] ?? params['server_port'] ?? '',
+    );
+
+    final modeValue = (params['mode'] ?? params['vpn'] ?? 'proxy')
+        .toLowerCase();
+    final mode = switch (modeValue) {
+      'vpn' || '1' => TunnelMode.vpn,
+      'proxy_per_app' ||
+      'proxy-per-app' ||
+      'per_app' ||
+      'app' ||
+      'app_proxy' => TunnelMode.proxyPerApp,
+      _ => TunnelMode.proxy,
+    };
+    final proxyPerAppPackages =
+        (params['apps'] ?? '')
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+
+    final encryptValue =
+        (params['encrypt'] ??
+                params['encrypt_mode'] ??
+                params['encryptMode'] ??
+                params['enc'] ??
+                '')
+            .toLowerCase();
+    final validEncryptModes = {'aes128', 'aes256', 'chacha20'};
+    final encryptMode =
+        encryptValue.isEmpty ||
+            encryptValue == '0' ||
+            encryptValue == 'none' ||
+            !validEncryptModes.contains(encryptValue)
+        ? null
+        : encryptValue;
+    final encryptKey =
+        params['encrypt-key'] ?? params['encrypt_key'] ?? params['encryptKey'];
+
+    if (encryptMode == null && key == null && 
+        (username == null || username.isEmpty || password == null || password.isEmpty)) {
+      throw const FormatException('Missing key or username/password');
+    }
+    if (encryptMode != null && (encryptKey == null || encryptKey.isEmpty)) {
+      throw const FormatException('Missing encrypt_key');
+    }
+    if (keyText.isNotEmpty && key == null) {
+      throw const FormatException('Key must be an integer');
+    }
+
+    return TunnelConfig(
+      serverHost: host,
+      serverPort: serverPort,
+      localSocksPort: localPort,
+      key: key,
+      username: username?.isNotEmpty == true ? username : null,
+      password: password?.isNotEmpty == true ? password : null,
+      hwid: hwid,
+      mode: mode,
+      encryptMode: encryptMode,
+      encryptKey: encryptKey,
+      interfaceName: params['iface'] ?? params['interface'],
+      tunDevice: params['tun'] ?? params['tun_device'],
+      dns: params['dns'],
+      proxyPerAppPackages: proxyPerAppPackages,
+    );
   }
 }
