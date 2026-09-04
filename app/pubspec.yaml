@@ -60,7 +60,6 @@ flutter:
     - assets/scripts/linux/
     - assets/scripts/macos/
     - assets/scripts/windows/
-    - assets/wordlist_fr.txt
 
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
