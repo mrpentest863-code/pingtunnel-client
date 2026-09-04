@@ -840,6 +840,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     super.initState();
     _entry = widget.entry;
     _isActive = widget.activeId == _entry.id;
+    _dirty = true; // Force dirty pour permettre la sauvegarde
     _mode = _entry.config.mode;
     _hostController = TextEditingController(text: _entry.config.serverHost);
     _keyController = TextEditingController(text: _entry.config.key?.toString() ?? '');
@@ -850,13 +851,6 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _encryptKeyController = TextEditingController(text: _entry.config.encryptKey ?? '');
     _encryptMode = _entry.config.encryptMode ?? 'none';
     _proxyPerAppPackages = [..._entry.config.proxyPerAppPackages]..sort();
-    _hostController.addListener(_markDirty);
-    _keyController.addListener(_markDirty);
-    _usernameController.addListener(_markDirty);
-    _passwordController.addListener(_markDirty);
-    _hwidController.addListener(_markDirty);
-    _localPortController.addListener(_markDirty);
-    _encryptKeyController.addListener(_markDirty);
     _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) { if (mounted) setState(() {}); });
   }
 
@@ -873,24 +867,12 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     super.dispose();
   }
 
-  void _markDirty() {
-    if (_isActive || _dirty || widget.locked) return;
-    setState(() => _dirty = true);
-  }
-
   bool get _isProxyPerAppMode => _mode == TunnelMode.proxyPerApp;
 
   Future<bool> _applyEditsIfNeeded({bool showMessage = false}) async {
-    if (widget.locked) return true;
-    if (!_dirty) return _isProxyPerAppMode ? _proxyPerAppPackages.isNotEmpty : true;
-    if (_isActive) return false;
-    if (!_formKey.currentState!.validate()) {
-      _showMessage('Fix the fields before continuing');
-      return false;
-    }
     final config = _buildConfigFromFields();
     if (config == null) {
-      _showMessage('Fix the fields before continuing');
+      _showMessage('Champs invalides');
       return false;
     }
     final uri = buildConnectionUri(config);
@@ -955,10 +937,24 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final localPort = int.tryParse(_localPortController.text.trim());
     final encryptMode = _encryptMode == 'none' ? null : _encryptMode;
     final encryptKey = _encryptKeyController.text.trim().isEmpty ? null : _encryptKeyController.text.trim();
-    if (host.isEmpty || localPort == null) return null;
-    if (_encryptMode == 'none' && key == null && (username.isEmpty || password.isEmpty)) return null;
-    if (_encryptMode != 'none' && encryptKey == null) return null;
-    if (_isProxyPerAppMode && _proxyPerAppPackages.isEmpty) return null;
+    
+    if (host.isEmpty) {
+      _showMessage('Host est vide');
+      return null;
+    }
+    if (localPort == null) {
+      _showMessage('Port invalide');
+      return null;
+    }
+    if (_encryptMode == 'none' && key == null && (username.isEmpty || password.isEmpty)) {
+      _showMessage('Username/password ou key requis');
+      return null;
+    }
+    if (_encryptMode != 'none' && encryptKey == null) {
+      _showMessage('Encryption key requis');
+      return null;
+    }
+    
     return TunnelConfig(
       serverHost: host,
       serverPort: null,
