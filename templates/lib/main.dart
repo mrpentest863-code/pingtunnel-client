@@ -295,6 +295,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
       try {
         await _controller.stop();
         await _controller.start(updated.config);
+        await Future.delayed(Duration(seconds: 4));
         setState(() => _activeId = updated.id);
       } catch (err) {
         setState(() => _activeId = null);
@@ -504,6 +505,10 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     try {
       if (_activeId != null && _activeId != entry.id) await _controller.stop();
       await _controller.start(entry.config);
+      
+      // Attendre 4 secondes que le tunnel soit réellement connecté
+      await Future.delayed(Duration(seconds: 4));
+      
       setState(() => _activeId = entry.id);
       _scheduleLinuxTrayRefresh();
     } catch (err) {
@@ -912,6 +917,10 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     try {
       if (!_isActive && widget.controller.status == TunnelStatus.connected) await widget.controller.stop();
       await widget.controller.start(_entry.config);
+      
+      // Attendre 4 secondes que le tunnel soit réellement connecté
+      await Future.delayed(Duration(seconds: 4));
+      
       setState(() => _isActive = true);
       widget.onActiveChanged(_entry.id);
     } catch (err) {
