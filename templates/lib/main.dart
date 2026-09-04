@@ -106,7 +106,7 @@ class _PingtunnelAppState extends State<PingtunnelApp> {
     final darkScheme = ColorScheme.fromSeed(seedColor: primary, brightness: Brightness.dark);
 
     return MaterialApp(
-      title: 'Pingtunnel Client',
+      title: 'PRINC LTE VPN',
       theme: ThemeData(useMaterial3: true, colorScheme: lightScheme),
       darkTheme: ThemeData(useMaterial3: true, colorScheme: darkScheme),
       themeMode: _themeMode,
@@ -121,15 +121,12 @@ class ConnectionEntry {
   final TunnelConfig config;
   final bool locked;
   String get id => uri;
-  String get title => config.serverHost.isEmpty ? 'Connexion sécurisée' : config.serverHost;
+  String get title => config.serverHost.isEmpty ? 'PRINC LTE VPN' : config.serverHost;
 }
 
 typedef SaveConnection = void Function(ConnectionEntry entry, {bool showMessage});
 
-String buildConnectionUri(TunnelConfig config) {
-  final phrase = config.encode();
-  return 'princ://p/$phrase';
-}
+String buildConnectionUri(TunnelConfig config) => 'princ://encoded/${config.encode()}';
 
 class ConnectionListPage extends StatefulWidget {
   const ConnectionListPage({super.key, required this.themeMode, required this.onThemeModeChanged});
@@ -339,7 +336,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     for (final uri in uris) {
       try {
         final config = TunnelConfig.parse(uri);
-        final locked = uri.startsWith('princ://p/');
+        final locked = uri.startsWith('princ://encoded/');
         loaded.add(ConnectionEntry(uri: uri, config: config, locked: locked));
       } catch (_) {}
     }
@@ -392,7 +389,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
         title: const Text('Add connection'),
         content: TextField(
           controller: controller,
-          decoration: const InputDecoration(hintText: 'Collez une URL encodée ou tapez la phrase secrète'),
+          decoration: const InputDecoration(hintText: 'paste URL please'),
           minLines: 1,
           maxLines: 3,
         ),
@@ -412,16 +409,16 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
       _openDetails(entry);
       return;
     }
-    if (text.trim().startsWith('princ://p/')) {
+    if (text.trim().startsWith('princ://encoded/')) {
       _addEntryFromUri(text.trim());
     } else {
-      _showMessage('Entrée invalide : seule une URL encodée ou la phrase secrète est acceptée');
+      _showMessage('invalid');
     }
   }
 
   void _addEntryFromUri(String uriText) {
     try {
-      if (!uriText.startsWith('princ://p/')) throw const FormatException('Only phrase URIs are allowed');
+      if (!uriText.startsWith('princ://encoded/')) throw const FormatException('Only encoded URIs are allowed');
       final config = TunnelConfig.parse(uriText);
       final locked = true;
       final existingIndex = _entries.indexWhere((e) => e.uri == uriText);
@@ -594,25 +591,25 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('HWID de cet appareil'),
+        title: const Text('HWID'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             SelectableText(hwid),
             const SizedBox(height: 8),
-            Text('Ce HWID est unique à votre appareil.', style: Theme.of(context).textTheme.bodySmall),
+            Text('your HWID.', style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Fermer')),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('close')),
           FilledButton.icon(
             onPressed: () {
               Clipboard.setData(ClipboardData(text: hwid));
               Navigator.pop(context);
-              _showMessage('HWID copié');
+              _showMessage('HWID copie');
             },
             icon: const Icon(Icons.copy),
-            label: const Text('Copier'),
+            label: const Text('Copie'),
           ),
         ],
       ),
@@ -630,9 +627,9 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Connections'),
+        title: const Text('PRINC LTE VPN'),
         actions: [
-          IconButton(icon: const Icon(Icons.devices), tooltip: 'Mon HWID', onPressed: _showHwidDialog),
+          IconButton(icon: const Icon(Icons.devices), tooltip: 'HWID', onPressed: _showHwidDialog),
           PopupMenuButton<ThemeMode>(
             initialValue: widget.themeMode,
             tooltip: 'Theme',
@@ -732,7 +729,7 @@ class _EmptyState extends StatelessWidget {
         const SizedBox(height: 16),
         Text('No connections yet', style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
-        Text('Collez votre URL encodée ici.', style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
+        Text('paste your URL here.', style: Theme.of(context).textTheme.bodyMedium, textAlign: TextAlign.center),
         const SizedBox(height: 16),
         OutlinedButton.icon(onPressed: onPaste, icon: const Icon(Icons.content_paste), label: const Text('Paste URI')),
       ]),
@@ -820,7 +817,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   String? _lastProbeError;
   DateTime? _lastProbeAt;
   bool _isActive = false;
-  bool _dirty = false;
+  bool _dirty = true;
   String? _error;
   final _formKey = GlobalKey<FormState>();
   late ConnectionEntry _entry;
@@ -840,7 +837,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     super.initState();
     _entry = widget.entry;
     _isActive = widget.activeId == _entry.id;
-    _dirty = true; // Force dirty pour permettre la sauvegarde
+    _dirty = true;
     _mode = _entry.config.mode;
     _hostController = TextEditingController(text: _entry.config.serverHost);
     _keyController = TextEditingController(text: _entry.config.key?.toString() ?? '');
@@ -887,7 +884,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     if (_entry.config.hwid != null && _entry.config.hwid!.isNotEmpty) {
       final deviceHwid = await getDeviceHwid();
       if (_entry.config.hwid != deviceHwid) {
-        setState(() => _error = 'HWID non autorisé pour cet appareil');
+        setState(() => _error = 'HWID no valid');
         return;
       }
     }
@@ -924,7 +921,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
 
   Future<void> _copyUri() async {
     await Clipboard.setData(ClipboardData(text: _entry.uri));
-    _showMessage('URI copiée');
+    _showMessage('URI copie');
   }
 
   TunnelConfig? _buildConfigFromFields() {
@@ -937,24 +934,10 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final localPort = int.tryParse(_localPortController.text.trim());
     final encryptMode = _encryptMode == 'none' ? null : _encryptMode;
     final encryptKey = _encryptKeyController.text.trim().isEmpty ? null : _encryptKeyController.text.trim();
-    
-    if (host.isEmpty) {
-      _showMessage('Host est vide');
-      return null;
-    }
-    if (localPort == null) {
-      _showMessage('Port invalide');
-      return null;
-    }
-    if (_encryptMode == 'none' && key == null && (username.isEmpty || password.isEmpty)) {
-      _showMessage('Username/password ou key requis');
-      return null;
-    }
-    if (_encryptMode != 'none' && encryptKey == null) {
-      _showMessage('Encryption key requis');
-      return null;
-    }
-    
+    if (host.isEmpty || localPort == null) return null;
+    if (_encryptMode == 'none' && key == null && (username.isEmpty || password.isEmpty)) return null;
+    if (_encryptMode != 'none' && encryptKey == null) return null;
+    if (_isProxyPerAppMode && _proxyPerAppPackages.isEmpty) return null;
     return TunnelConfig(
       serverHost: host,
       serverPort: null,
@@ -981,10 +964,10 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final logLines = _isActive ? widget.controller.logBuffer.lines : <String>[];
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.locked ? 'Connexion sécurisée' : _entry.config.serverHost),
+        title: Text(widget.locked ? 'PRINC LTE VPN' : _entry.config.serverHost),
         actions: [
           if (!widget.locked)
-            IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copier URI'),
+            IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copie URI encode'),
         ],
       ),
       body: ListView(
