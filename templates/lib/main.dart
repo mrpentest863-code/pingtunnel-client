@@ -57,7 +57,6 @@ Future<String> getDeviceHwid() async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await loadWordList();
   if (Platform.isLinux) await windowManager.ensureInitialized();
   runApp(const PingtunnelApp());
 }
@@ -835,7 +834,6 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   late TunnelMode _mode;
   late String _encryptMode;
   late List<String> _proxyPerAppPackages;
-  bool _loadingProxyPerAppApps = false;
 
   @override
   void initState() {
