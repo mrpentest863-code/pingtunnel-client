@@ -152,6 +152,10 @@ class PingtunnelVpnService : VpnService() {
         tunFd = fd
 
         pingtunnelProcess = startPingtunnel(config)
+        
+        // Attendre 3 secondes que pingtunnel soit prêt
+        Thread.sleep(3000)
+        
         tun2socksProcess = startTun2socks(config, tunFd!!)
     }
 
