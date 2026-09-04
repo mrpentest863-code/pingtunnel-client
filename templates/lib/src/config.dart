@@ -1,9 +1,29 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/services.dart' show rootBundle;
 
 enum TunnelMode { proxy, vpn, proxyPerApp }
 
-// Clé secrète pour le chiffrement
 const String _secretKey = "PingTunnelSecretKey2024!";
+
+// Liste de mots chargée depuis l'asset (2048 mots)
+List<String> _wordList = [];
+bool _wordListLoaded = false;
+
+/// Charge la liste de mots depuis l'asset (à appeler une fois au démarrage)
+Future<void> loadWordList() async {
+  if (_wordListLoaded) return;
+  final raw = await rootBundle.loadString('assets/wordlist_fr.txt');
+  _wordList = raw
+      .split('\n')
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+  if (_wordList.length != 2048) {
+    throw Exception('La liste de mots doit contenir exactement 2048 entrées');
+  }
+  _wordListLoaded = true;
+}
 
 class TunnelConfig {
   TunnelConfig({
@@ -75,19 +95,13 @@ class TunnelConfig {
   }
 
   String serverAddress() {
-    if (serverPort == null) {
-      return serverHost;
-    }
+    if (serverPort == null) return serverHost;
     return "$serverHost:$serverPort";
   }
 
   int localProxyBackendSocksPort() {
-    if (localSocksPort < 1 || localSocksPort > 65535) {
-      return 1081;
-    }
-    if (localSocksPort == 65535) {
-      return 65534;
-    }
+    if (localSocksPort < 1 || localSocksPort > 65535) return 1081;
+    if (localSocksPort == 65535) return 65534;
     return localSocksPort + 1;
   }
 
@@ -114,19 +128,76 @@ class TunnelConfig {
     };
   }
 
-  // Encoder avec clé secrète
+  // Encodage en phrase courte (12-24 mots) utilisant BIP39-like
   String encode() {
+    if (!_wordListLoaded) {
+      throw StateError('Word list not loaded. Call loadWordList() first.');
+    }
+
+    // 1. JSON -> bytes
     final jsonString = jsonEncode(toMap());
     final bytes = utf8.encode(jsonString);
+    // 2. XOR encrypt
     final encrypted = List<int>.generate(bytes.length, (i) {
       return bytes[i] ^ _secretKey.codeUnitAt(i % _secretKey.length);
     });
-    return base64Url.encode(encrypted);
+    // 3. gzip compress
+    final compressed = gzip.encode(encrypted);
+    // 4. Convert bytes to bits
+    final bits = <int>[];
+    for (final byte in compressed) {
+      for (int i = 7; i >= 0; i--) {
+        bits.add((byte >> i) & 1);
+      }
+    }
+    // 5. Pad to multiple of 11
+    while (bits.length % 11 != 0) {
+      bits.add(0);
+    }
+    // 6. Convert each 11-bit chunk to word index
+    final words = <String>[];
+    for (int i = 0; i < bits.length; i += 11) {
+      int index = 0;
+      for (int j = 0; j < 11; j++) {
+        index = (index << 1) | bits[i + j];
+      }
+      words.add(_wordList[index]);
+    }
+    return words.join('-');
   }
 
-  // Décoder avec clé secrète
-  static TunnelConfig decode(String encoded) {
-    final encrypted = base64Url.decode(encoded);
+  // Décodage depuis une phrase
+  static TunnelConfig decode(String phrase) {
+    if (!_wordListLoaded) {
+      throw StateError('Word list not loaded. Call loadWordList() first.');
+    }
+
+    final words = phrase.split('-');
+    // Convert words to bits
+    final bits = <int>[];
+    for (final word in words) {
+      final index = _wordList.indexOf(word);
+      if (index < 0) throw FormatException('Mot inconnu: $word');
+      for (int i = 10; i >= 0; i--) {
+        bits.add((index >> i) & 1);
+      }
+    }
+    // Remove padding (we added zeros to make multiple of 11, now remove until multiple of 8)
+    while (bits.length % 8 != 0) {
+      bits.removeLast();
+    }
+    // Convert bits to bytes
+    final compressed = <int>[];
+    for (int i = 0; i < bits.length; i += 8) {
+      int byte = 0;
+      for (int j = 0; j < 8; j++) {
+        byte = (byte << 1) | bits[i + j];
+      }
+      compressed.add(byte);
+    }
+    // gzip decompress
+    final encrypted = gzip.decode(compressed);
+    // XOR decrypt
     final decrypted = List<int>.generate(encrypted.length, (i) {
       return encrypted[i] ^ _secretKey.codeUnitAt(i % _secretKey.length);
     });
@@ -135,7 +206,6 @@ class TunnelConfig {
     return TunnelConfig.fromMap(map);
   }
 
-  // Créer depuis un map
   static TunnelConfig fromMap(Map<String, dynamic> map) {
     final modeStr = map['mode'] as String? ?? 'proxy';
     final mode = switch (modeStr) {
@@ -143,7 +213,7 @@ class TunnelConfig {
       'proxy_per_app' => TunnelMode.proxyPerApp,
       _ => TunnelMode.proxy,
     };
-    
+
     return TunnelConfig(
       serverHost: map['serverHost'] as String,
       serverPort: map['serverPort'] as int?,
@@ -158,110 +228,21 @@ class TunnelConfig {
       interfaceName: map['interfaceName'] as String?,
       tunDevice: map['tunDevice'] as String?,
       dns: map['dns'] as String?,
-      proxyPerAppPackages: (map['proxyPerAppPackages'] as List?)?.cast<String>() ?? [],
+      proxyPerAppPackages:
+          (map['proxyPerAppPackages'] as List?)?.cast<String>() ?? [],
     );
   }
 
+  // Parse une URI. Supporte uniquement le format princ://p/phrase
   static TunnelConfig parse(String uriText) {
     final uri = Uri.parse(uriText.trim());
     if (uri.scheme != 'princ') {
       throw const FormatException('URI scheme must be princ://');
     }
-
-    String host = uri.host;
-    
-    // Si c'est une URL encodée
-    if (host == 'encoded' || (host.isEmpty && uri.path.isNotEmpty)) {
-      final encoded = uri.path.replaceAll('/', '');
-      if (encoded.isNotEmpty) {
-        return decode(encoded);
-      }
+    if (uri.host != 'p') {
+      throw const FormatException('Only princ://p/... is supported');
     }
-    
-    if (host.isEmpty) {
-      host = uri.path;
-    }
-    if (host.isEmpty) {
-      throw const FormatException('Missing server host');
-    }
-
-    final params = uri.queryParameters;
-    final keyText = params['key'] ?? '';
-    final key = keyText.isEmpty ? null : int.tryParse(keyText);
-    final username = params['user'] ?? params['username'];
-    final password = params['pass'] ?? params['password'];
-    final hwid = params['hwid'];
-
-    final localPort =
-        int.tryParse(params['lport'] ?? params['local_port'] ?? '') ?? 1080;
-    final serverPort = int.tryParse(
-      params['port'] ?? params['server_port'] ?? '',
-    );
-
-    final modeValue = (params['mode'] ?? params['vpn'] ?? 'proxy')
-        .toLowerCase();
-    final mode = switch (modeValue) {
-      'vpn' || '1' => TunnelMode.vpn,
-      'proxy_per_app' ||
-      'proxy-per-app' ||
-      'per_app' ||
-      'app' ||
-      'app_proxy' => TunnelMode.proxyPerApp,
-      _ => TunnelMode.proxy,
-    };
-    final proxyPerAppPackages =
-        (params['apps'] ?? '')
-            .split(',')
-            .map((value) => value.trim())
-            .where((value) => value.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-
-    final encryptValue =
-        (params['encrypt'] ??
-                params['encrypt_mode'] ??
-                params['encryptMode'] ??
-                params['enc'] ??
-                '')
-            .toLowerCase();
-    final validEncryptModes = {'aes128', 'aes256', 'chacha20'};
-    final encryptMode =
-        encryptValue.isEmpty ||
-            encryptValue == '0' ||
-            encryptValue == 'none' ||
-            !validEncryptModes.contains(encryptValue)
-        ? null
-        : encryptValue;
-    final encryptKey =
-        params['encrypt-key'] ?? params['encrypt_key'] ?? params['encryptKey'];
-
-    if (encryptMode == null && key == null && 
-        (username == null || username.isEmpty || password == null || password.isEmpty)) {
-      throw const FormatException('Missing key or username/password');
-    }
-    if (encryptMode != null && (encryptKey == null || encryptKey.isEmpty)) {
-      throw const FormatException('Missing encrypt_key');
-    }
-    if (keyText.isNotEmpty && key == null) {
-      throw const FormatException('Key must be an integer');
-    }
-
-    return TunnelConfig(
-      serverHost: host,
-      serverPort: serverPort,
-      localSocksPort: localPort,
-      key: key,
-      username: username?.isNotEmpty == true ? username : null,
-      password: password?.isNotEmpty == true ? password : null,
-      hwid: hwid,
-      mode: mode,
-      encryptMode: encryptMode,
-      encryptKey: encryptKey,
-      interfaceName: params['iface'] ?? params['interface'],
-      tunDevice: params['tun'] ?? params['tun_device'],
-      dns: params['dns'],
-      proxyPerAppPackages: proxyPerAppPackages,
-    );
+    final phrase = uri.path.replaceAll('/', '');
+    return decode(phrase);
   }
 }
