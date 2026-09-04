@@ -20,7 +20,6 @@ const _buildGitSha = String.fromEnvironment('GIT_SHA', defaultValue: 'local');
 String _shortGitSha(String value) => value.length <= 8 ? value : value.substring(0, 8);
 String get _buildLabel => 'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
-// Phrase secrète pour ouvrir le formulaire de création manuelle
 const String _secretPhrase = "respire";
 
 Future<String> getDeviceHwid() async {
@@ -58,7 +57,7 @@ Future<String> getDeviceHwid() async {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await loadWordList(); // Charger la liste de mots avant runApp
+  await loadWordList();
   if (Platform.isLinux) await windowManager.ensureInitialized();
   runApp(const PingtunnelApp());
 }
@@ -713,7 +712,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6))),
               ],
               const SizedBox(height: 6),
-              const Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
+              Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
             ],
           ),
         ),
@@ -1033,7 +1032,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
               ))),
             ]),
             const SizedBox(height: 6),
-            const Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
+            Align(alignment: Alignment.centerRight, child: _BuildInfoText()),
           ]),
         ),
       ),
@@ -1048,5 +1047,200 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   }
 }
 
-// Les autres classes (_BuildInfoText, _StatusCard, _DetailsFormCard, _DiagnosticsCard, _LogsCard) restent inchangées.
-// Je les omets ici pour la brièveté, mais elles sont identiques à la version précédente.
+class _BuildInfoText extends StatelessWidget {
+  const _BuildInfoText();
+  @override
+  Widget build(BuildContext context) {
+    return Text(_buildLabel, style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 10, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55)));
+  }
+}
+
+class _StatusCard extends StatelessWidget {
+  const _StatusCard({required this.status, required this.error});
+  final TunnelStatus status;
+  final String? error;
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final (title, subtitle, icon, color) = switch (status) {
+      TunnelStatus.connected => ('Connected', 'Tunnel is active', Icons.check_circle, colors.primary),
+      TunnelStatus.connecting => ('Connecting', 'Working...', Icons.hourglass_top, colors.secondary),
+      TunnelStatus.error => ('Error', 'Check logs', Icons.error, colors.error),
+      TunnelStatus.disconnected => ('Disconnected', 'Not connected', Icons.radio_button_unchecked, colors.outline),
+    };
+    return SizedBox(height: 72, child: Card(child: Padding(padding: const EdgeInsets.all(16), child: Row(children: [
+      Icon(icon, color: color),
+      const SizedBox(width: 12),
+      Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(title, style: Theme.of(context).textTheme.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 2),
+        Text(error?.isNotEmpty == true ? error! : subtitle, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colors.onSurface.withValues(alpha: 0.7)), maxLines: 1, overflow: TextOverflow.ellipsis),
+      ])),
+      _StatusChip(isActive: true, status: status),
+    ]))));
+  }
+}
+
+class _DetailsFormCard extends StatelessWidget {
+  const _DetailsFormCard({
+    required this.formKey,
+    required this.hostController,
+    required this.keyController,
+    required this.usernameController,
+    required this.passwordController,
+    required this.hwidController,
+    required this.localPortController,
+    required this.encryptKeyController,
+    required this.mode,
+    required this.onModeChanged,
+    required this.encryptMode,
+    required this.onEncryptModeChanged,
+    required this.readOnly,
+    required this.onSave,
+  });
+
+  final GlobalKey<FormState> formKey;
+  final TextEditingController hostController;
+  final TextEditingController keyController;
+  final TextEditingController usernameController;
+  final TextEditingController passwordController;
+  final TextEditingController hwidController;
+  final TextEditingController localPortController;
+  final TextEditingController encryptKeyController;
+  final TunnelMode mode;
+  final ValueChanged<TunnelMode> onModeChanged;
+  final String encryptMode;
+  final ValueChanged<String> onEncryptModeChanged;
+  final bool readOnly;
+  final VoidCallback onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Form(
+          key: formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Text('Details', style: Theme.of(context).textTheme.titleMedium),
+                const Spacer(),
+                FilledButton(onPressed: readOnly ? null : onSave, child: const Text('Save')),
+              ]),
+              const SizedBox(height: 12),
+              TextFormField(controller: hostController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'Host'), validator: (v) => v!.trim().isEmpty ? 'Host required' : null),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<TunnelMode>(
+                initialValue: mode,
+                decoration: const InputDecoration(labelText: 'Mode'),
+                items: const [
+                  DropdownMenuItem(value: TunnelMode.proxy, child: Text('Proxy')),
+                  DropdownMenuItem(value: TunnelMode.vpn, child: Text('VPN')),
+                  DropdownMenuItem(value: TunnelMode.proxyPerApp, child: Text('Proxy per app')),
+                ],
+                onChanged: readOnly ? null : (v) => onModeChanged(v!),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(controller: usernameController, enabled: !readOnly && encryptMode == 'none', decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person)), validator: (v) {
+                if (encryptMode != 'none') return null;
+                if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Username or key required';
+                return null;
+              }),
+              const SizedBox(height: 12),
+              TextFormField(controller: passwordController, enabled: !readOnly && encryptMode == 'none', obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock)), validator: (v) {
+                if (encryptMode != 'none') return null;
+                if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Password or key required';
+                return null;
+              }),
+              const SizedBox(height: 12),
+              TextFormField(controller: hwidController, enabled: !readOnly, decoration: const InputDecoration(labelText: 'HWID Autorisé (optionnel)', prefixIcon: Icon(Icons.devices), hintText: 'Laisser vide pour tous')),
+              const SizedBox(height: 12),
+              TextFormField(controller: keyController, enabled: !readOnly && encryptMode == 'none', keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Key (legacy)'), validator: (v) {
+                if (encryptMode != 'none') return null;
+                if (v!.trim().isEmpty && usernameController.text.trim().isEmpty && passwordController.text.trim().isEmpty) return 'Key or username/password required';
+                if (v.trim().isNotEmpty && int.tryParse(v.trim()) == null) return 'Key must be a number';
+                return null;
+              }),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: encryptMode,
+                decoration: const InputDecoration(labelText: 'Encryption'),
+                items: const [
+                  DropdownMenuItem(value: 'none', child: Text('None')),
+                  DropdownMenuItem(value: 'aes128', child: Text('AES-128')),
+                  DropdownMenuItem(value: 'aes256', child: Text('AES-256')),
+                  DropdownMenuItem(value: 'chacha20', child: Text('ChaCha20')),
+                ],
+                onChanged: readOnly ? null : (v) => onEncryptModeChanged(v!),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(controller: encryptKeyController, enabled: !readOnly && encryptMode != 'none', decoration: const InputDecoration(labelText: 'Encryption key'), validator: (v) {
+                if (encryptMode != 'none' && v!.trim().isEmpty) return 'Encryption key required';
+                return null;
+              }),
+              const SizedBox(height: 12),
+              TextFormField(controller: localPortController, enabled: !readOnly, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Local port'), validator: (v) {
+                final p = int.tryParse(v!.trim());
+                if (p == null || p < 1 || p > 65535) return 'Port 1-65535';
+                return null;
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiagnosticsCard extends StatelessWidget {
+  const _DiagnosticsCard({required this.lastProbeResult, required this.lastProbeError, required this.lastProbeAt, required this.onOpenIpCheck});
+  final String? lastProbeResult;
+  final String? lastProbeError;
+  final DateTime? lastProbeAt;
+  final VoidCallback onOpenIpCheck;
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Diagnostics', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          Text('Test status: ${lastProbeError != null ? 'Failed' : lastProbeResult != null ? 'OK' : 'Not tested'}'),
+          const SizedBox(height: 6),
+          Text(lastProbeError ?? lastProbeResult ?? 'Run test to verify.'),
+          const SizedBox(height: 10),
+          Text('Last test: ${lastProbeAt == null ? '—' : lastProbeAt.toString()}'),
+          const SizedBox(height: 10),
+          TextButton.icon(onPressed: onOpenIpCheck, icon: const Icon(Icons.open_in_new), label: const Text('Open IP check')),
+        ]),
+      ),
+    );
+  }
+}
+
+class _LogsCard extends StatelessWidget {
+  const _LogsCard({required this.lines});
+  final List<String> lines;
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Logs', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            constraints: const BoxConstraints(minHeight: 120),
+            decoration: BoxDecoration(color: Theme.of(context).colorScheme.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
+            child: SelectableText(lines.isEmpty ? 'No logs yet.' : lines.join('\n'), style: const TextStyle(fontFamily: 'monospace', fontSize: 12)),
+          ),
+        ]),
+      ),
+    );
+  }
+}
