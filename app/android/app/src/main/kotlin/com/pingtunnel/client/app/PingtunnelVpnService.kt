@@ -152,10 +152,6 @@ class PingtunnelVpnService : VpnService() {
         tunFd = fd
 
         pingtunnelProcess = startPingtunnel(config)
-        
-        // Attendre 3 secondes que pingtunnel soit prêt
-        Thread.sleep(3000)
-        
         tun2socksProcess = startTun2socks(config, tunFd!!)
     }
 
@@ -214,7 +210,7 @@ class PingtunnelVpnService : VpnService() {
         val isProxyPerAppMode = config?.mode?.equals("proxy_per_app", ignoreCase = true) == true
         val notification = ServiceNotifications.createForegroundNotification(
             this,
-            if (isProxyPerAppMode) "Pingtunnel Proxy per app" else "P LTE",
+            if (isProxyPerAppMode) "Pingtunnel Proxy per app" else "HYBRID 243",
             "Connected to $serverHost",
             disconnectIntent,
             restoreIntent
