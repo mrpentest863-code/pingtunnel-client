@@ -56,17 +56,6 @@ Future<String> getDeviceHwid() async {
   return digest.toString().substring(0, 32);
 }
 
-// Vérifier si le proxy SOCKS local est accessible
-Future<bool> _checkSocksProxy(int port) async {
-  try {
-    final socket = await Socket.connect('127.0.0.1', port, timeout: Duration(seconds: 5));
-    socket.destroy();
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (Platform.isLinux) await windowManager.ensureInitialized();
@@ -133,12 +122,12 @@ class ConnectionEntry {
   final TunnelConfig config;
   final bool locked;
   String get id => uri;
-  String get title => config.serverHost.isEmpty ? 'Connexion sécurisée' : config.serverHost;
+  String get title => config.serverHost.isEmpty ? 'TNS 243' : config.serverHost;
 }
 
 typedef SaveConnection = void Function(ConnectionEntry entry, {bool showMessage});
 
-String buildConnectionUri(TunnelConfig config) => 'princ://encoded/${config.encode()}';
+String buildConnectionUri(TunnelConfig config) => 'tns://encoded/${config.encode()}';
 
 class ConnectionListPage extends StatefulWidget {
   const ConnectionListPage({super.key, required this.themeMode, required this.onThemeModeChanged});
@@ -306,14 +295,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
       try {
         await _controller.stop();
         await _controller.start(updated.config);
-        final isConnected = await _checkSocksProxy(updated.config.localSocksPort);
-        if (isConnected) {
-          setState(() => _activeId = updated.id);
-        } else {
-          await _controller.stop();
-          setState(() => _activeId = null);
-          _showMessage('Failed to connect');
-        }
+        setState(() => _activeId = updated.id);
       } catch (err) {
         setState(() => _activeId = null);
         _showMessage('Failed to switch mode: $err');
@@ -355,7 +337,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     for (final uri in uris) {
       try {
         final config = TunnelConfig.parse(uri);
-        final locked = uri.startsWith('princ://encoded/');
+        final locked = uri.startsWith('tns://encoded/');
         loaded.add(ConnectionEntry(uri: uri, config: config, locked: locked));
       } catch (_) {}
     }
@@ -428,7 +410,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
       _openDetails(entry);
       return;
     }
-    if (text.trim().startsWith('princ://encoded/')) {
+    if (text.trim().startsWith('tns://encoded/')) {
       _addEntryFromUri(text.trim());
     } else {
       _showMessage('invalid');
@@ -437,7 +419,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
   void _addEntryFromUri(String uriText) {
     try {
-      if (!uriText.startsWith('princ://encoded/')) throw const FormatException('Only encoded URIs are allowed');
+      if (!uriText.startsWith('tns://encoded/')) throw const FormatException('Only encoded URIs are allowed');
       final config = TunnelConfig.parse(uriText);
       final locked = true;
       final existingIndex = _entries.indexWhere((e) => e.uri == uriText);
@@ -515,24 +497,15 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     if (entry.config.hwid != null && entry.config.hwid!.isNotEmpty) {
       final deviceHwid = await getDeviceHwid();
       if (entry.config.hwid != deviceHwid) {
-        _showMessage('HWID non autorisé pour cet appareil');
+        _showMessage('HWID non valide pour cet appareil');
         return;
       }
     }
     try {
       if (_activeId != null && _activeId != entry.id) await _controller.stop();
       await _controller.start(entry.config);
-      
-      // Vérifier si le proxy SOCKS local est accessible
-      final isConnected = await _checkSocksProxy(entry.config.localSocksPort);
-      
-      if (isConnected) {
-        setState(() => _activeId = entry.id);
-        _scheduleLinuxTrayRefresh();
-      } else {
-        await _controller.stop();
-        _showMessage('Impossible de se connecter au serveur');
-      }
+      setState(() => _activeId = entry.id);
+      _scheduleLinuxTrayRefresh();
     } catch (err) {
       _showMessage(err.toString());
     }
@@ -655,7 +628,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PRINC LTE VPN'),
+        title: const Text('TNS 243'),
         actions: [
           IconButton(icon: const Icon(Icons.devices), tooltip: 'HWID', onPressed: _showHwidDialog),
           PopupMenuButton<ThemeMode>(
@@ -939,17 +912,8 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     try {
       if (!_isActive && widget.controller.status == TunnelStatus.connected) await widget.controller.stop();
       await widget.controller.start(_entry.config);
-      
-      // Vérifier si le proxy SOCKS local est accessible
-      final isConnected = await _checkSocksProxy(_entry.config.localSocksPort);
-      
-      if (isConnected) {
-        setState(() => _isActive = true);
-        widget.onActiveChanged(_entry.id);
-      } else {
-        await widget.controller.stop();
-        setState(() => _error = 'Impossible de se connecter au serveur');
-      }
+      setState(() => _isActive = true);
+      widget.onActiveChanged(_entry.id);
     } catch (err) {
       setState(() => _error = err.toString());
     }
@@ -1020,7 +984,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final logLines = _isActive ? widget.controller.logBuffer.lines : <String>[];
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.locked ? 'PRINC LTE VPN' : _entry.config.serverHost),
+        title: Text(widget.locked ? 'TNS 243' : _entry.config.serverHost),
         actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copie URI encode')],
       ),
       body: ListView(
