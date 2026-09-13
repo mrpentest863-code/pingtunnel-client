@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_jailbreak_detection_plus/flutter_jailbreak_detection_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
@@ -68,10 +69,69 @@ Future<String> getDeviceHwid() async {
   return digest.toString().substring(0, 32);
 }
 
+// Détection de root / jailbreak
+Future<bool> _isDeviceCompromised() async {
+  try {
+    final jailbroken = await FlutterJailbreakDetectionPlus.jailbroken;
+    return jailbroken;
+  } catch (_) {
+    return false;
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Vérifier si l'appareil est rooté/jailbreaké
+  final compromised = await _isDeviceCompromised();
+  if (compromised) {
+    runApp(const BlockedDeviceApp());
+    return;
+  }
+
   if (Platform.isLinux) await windowManager.ensureInitialized();
   runApp(const PingtunnelApp());
+}
+
+// Écran affiché si l'appareil est rooté
+class BlockedDeviceApp extends StatelessWidget {
+  const BlockedDeviceApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: Scaffold(
+        backgroundColor: Colors.black,
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(Icons.gpp_bad, size: 80, color: Colors.red),
+                SizedBox(height: 24),
+                Text(
+                  'Appareil non sécurisé',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                SizedBox(height: 12),
+                Text(
+                  "Cet appareil est rooté ou jailbreaké.\nL'application ne peut pas s'exécuter.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class PingtunnelApp extends StatefulWidget {
