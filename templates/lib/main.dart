@@ -20,8 +20,20 @@ const _buildGitSha = String.fromEnvironment('GIT_SHA', defaultValue: 'local');
 String _shortGitSha(String value) => value.length <= 8 ? value : value.substring(0, 8);
 String get _buildLabel => 'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
-// Phrase secrète pour ouvrir le formulaire de création manuelle
-const String _secretPhrase = "respire";
+// Phrase secrète reconstruite à partir de 4 fragments base64
+String _buildSecretPhrase() {
+  final fragments = [
+    'cmVz',      // res
+    'cGly',      // pir
+    'ZTI0',      // e24
+    'Mw==',      // 3
+  ];
+  return fragments
+      .map((f) => utf8.decode(base64.decode(f)))
+      .join();
+}
+
+final String _secretPhrase = _buildSecretPhrase();
 
 Future<String> getDeviceHwid() async {
   final deviceInfo = DeviceInfoPlugin();
@@ -160,10 +172,10 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
   @override
   void initState() {
     super.initState();
-    _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+    _uiTimer = Timer.periodic(const Duration(milliseconds: 2000), (_) {
       if (mounted) setState(() {});
       if (_isAndroid) {
-        _androidSyncTick = (_androidSyncTick + 1) % 2;
+        _androidSyncTick = (_androidSyncTick + 1) % 6;
         if (_androidSyncTick == 0) unawaited(_syncAndroidRuntimeState());
       }
     });
@@ -856,7 +868,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController.addListener(_markDirty);
     _localPortController.addListener(_markDirty);
     _encryptKeyController.addListener(_markDirty);
-    _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) { if (mounted) setState(() {}); });
+    _uiTimer = Timer.periodic(const Duration(milliseconds: 2000), (_) { if (mounted) setState(() {}); });
   }
 
   @override
