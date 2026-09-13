@@ -199,7 +199,7 @@ class ConnectionEntry {
 
 typedef SaveConnection = void Function(ConnectionEntry entry, {bool showMessage});
 
-String buildConnectionUri(TunnelConfig config) => 'princ://encoded/${config.encode()}';
+String buildConnectionUri(TunnelConfig config) => 'tns://encoded/${config.encode()}';
 
 class ConnectionListPage extends StatefulWidget {
   const ConnectionListPage({super.key, required this.themeMode, required this.onThemeModeChanged});
@@ -409,7 +409,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     for (final uri in uris) {
       try {
         final config = TunnelConfig.parse(uri);
-        final locked = uri.startsWith('princ://encoded/');
+        final locked = uri.startsWith('tns://encoded/');
         loaded.add(ConnectionEntry(uri: uri, config: config, locked: locked));
       } catch (_) {}
     }
@@ -482,7 +482,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
       _openDetails(entry);
       return;
     }
-    if (text.trim().startsWith('princ://encoded/')) {
+    if (text.trim().startsWith('tns://encoded/')) {
       _addEntryFromUri(text.trim());
     } else {
       _showMessage('invalid');
@@ -491,7 +491,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
   void _addEntryFromUri(String uriText) {
     try {
-      if (!uriText.startsWith('princ://encoded/')) throw const FormatException('Only encoded URIs are allowed');
+      if (!uriText.startsWith('tns://encoded/')) throw const FormatException('Only encoded URIs are allowed');
       final config = TunnelConfig.parse(uriText);
       final locked = true;
       final existingIndex = _entries.indexWhere((e) => e.uri == uriText);
@@ -700,7 +700,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PRINC LTE VPN'),
+        title: const Text('TNS 243'),
         actions: [
           IconButton(icon: const Icon(Icons.devices), tooltip: 'HWID', onPressed: _showHwidDialog),
           PopupMenuButton<ThemeMode>(
@@ -1056,7 +1056,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final logLines = _isActive ? widget.controller.logBuffer.lines : <String>[];
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.locked ? 'PRINC LTE VPN' : _entry.config.serverHost),
+        title: Text(widget.locked ? 'TNS 243' : _entry.config.serverHost),
         actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copie URI encode')],
       ),
       body: ListView(
