@@ -14,7 +14,6 @@ on:
 jobs:
   build:
     name: build-${{ matrix.target }}
-    if: ${{ matrix.target != 'android-ci' || !startsWith(github.ref, 'refs/tags/') }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -99,13 +98,30 @@ jobs:
           chmod +x pack.sh
           ./pack.sh
 
-      - name: Build Android CI (debug, unsigned)
+      - name: Build Android CI (debug, unsigned, obfuscated)
         if: matrix.target == 'android-ci'
         shell: bash
         run: |
           chmod +x scripts/bootstrap_flutter.sh
           ./scripts/bootstrap_flutter.sh
-          (cd app && flutter build apk --debug)
+          (cd app && flutter build apk --debug --obfuscate --split-debug-info=./debug_info)
+
+      - name: Upload Android APK
+        if: matrix.target == 'android-ci'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pingtunnel-android-debug
+          path: app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload Android debug info
+        if: matrix.target == 'android-ci'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pingtunnel-android-debug-info
+          path: app/debug_info/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Zip Windows bundles for release assets
         if: matrix.target == 'windows'
@@ -119,7 +135,7 @@ jobs:
             Compress-Archive -Path "$($_.FullName)\*" -DestinationPath $zipPath
           }
 
-      - name: Upload artifacts
+      - name: Upload artifacts (Linux / Windows)
         if: matrix.target != 'android-ci'
         uses: actions/upload-artifact@v4
         with:
@@ -210,6 +226,14 @@ jobs:
           name: pingtunnel-android
           path: dist/*.apk
           if-no-files-found: error
+
+      - name: Upload Android release debug info
+        uses: actions/upload-artifact@v4
+        with:
+          name: pingtunnel-android-release-debug-info
+          path: app/debug_info/
+          if-no-files-found: warn
+          retention-days: 7
 
   release:
     name: release
