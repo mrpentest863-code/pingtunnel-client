@@ -115,7 +115,7 @@ class PingtunnelProxyService : Service() {
         val proxyPorts = config?.let { "SOCKS/HTTP ${it.localSocksPort}" }
         val notification = ServiceNotifications.createForegroundNotification(
             this,
-            "Pingtunnel Proxy",
+            "HYBRID Proxy",
             if (proxyPorts == null) "Connected to $serverHost" else "Connected to $serverHost ($proxyPorts)",
             disconnectIntent,
             restoreIntent
