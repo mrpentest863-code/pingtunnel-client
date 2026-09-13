@@ -112,6 +112,10 @@ DART_DEFINE_ARGS=(
   "--dart-define=APP_BUILD=${BUILD_NUMBER}"
   "--dart-define=GIT_SHA=${BUILD_GIT_SHA}"
 )
+OBFUSCATE_ARGS=(
+  --obfuscate
+  --split-debug-info=./debug_info
+)
 
 echo "Resolved app version: ${VERSION}"
 echo "Resolved git commit: ${BUILD_GIT_SHA}"
@@ -120,9 +124,9 @@ echo "Bootstrapping Flutter app..."
 "${ROOT_DIR}/scripts/bootstrap_flutter.sh"
 
 if [[ "${BUILD_ANDROID}" == "1" ]]; then
-  echo "Building Android APKs (release)..."
-  (cd "${APP_DIR}" && flutter build apk --release "${FLUTTER_BUILD_ARGS[@]}" "${DART_DEFINE_ARGS[@]}")
-  (cd "${APP_DIR}" && flutter build apk --release --split-per-abi "${FLUTTER_BUILD_ARGS[@]}" "${DART_DEFINE_ARGS[@]}")
+  echo "Building Android APKs (release, obfuscated)..."
+  (cd "${APP_DIR}" && flutter build apk --release "${FLUTTER_BUILD_ARGS[@]}" "${DART_DEFINE_ARGS[@]}" "${OBFUSCATE_ARGS[@]}")
+  (cd "${APP_DIR}" && flutter build apk --release --split-per-abi "${FLUTTER_BUILD_ARGS[@]}" "${DART_DEFINE_ARGS[@]}" "${OBFUSCATE_ARGS[@]}")
 fi
 
 mkdir -p "${DIST_DIR}"
@@ -158,8 +162,8 @@ if [[ "${BUILD_LINUX}" == "1" ]]; then
     exit 1
   fi
 
-  echo "Building Linux bundle (release)..."
-  (cd "${APP_DIR}" && flutter build linux --release "${FLUTTER_BUILD_ARGS[@]}" "${DART_DEFINE_ARGS[@]}")
+  echo "Building Linux bundle (release, obfuscated)..."
+  (cd "${APP_DIR}" && flutter build linux --release "${FLUTTER_BUILD_ARGS[@]}" "${DART_DEFINE_ARGS[@]}" "${OBFUSCATE_ARGS[@]}")
 
   echo "Building Debian package(s)..."
   BUILT_DEB=0
@@ -208,8 +212,8 @@ if [[ "${BUILD_WINDOWS}" == "1" ]]; then
     exit 1
   fi
 
-  echo "Building Windows bundle (release)..."
-  (cd "${APP_DIR}" && flutter build windows --release "${FLUTTER_BUILD_ARGS[@]}" "${DART_DEFINE_ARGS[@]}")
+  echo "Building Windows bundle (release, obfuscated)..."
+  (cd "${APP_DIR}" && flutter build windows --release "${FLUTTER_BUILD_ARGS[@]}" "${DART_DEFINE_ARGS[@]}" "${OBFUSCATE_ARGS[@]}")
 
   WINDOWS_BUILD_COUNT=0
   for win_arch in x64 arm64; do
