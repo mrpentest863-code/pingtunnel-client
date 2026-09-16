@@ -39,7 +39,7 @@ dependencies:
   window_manager: ^0.5.1
   crypto: ^3.0.3
   device_info_plus: ^10.0.0
-  flutter_jailbreak_detection_plus: ^1.10.7
+  
 
 dev_dependencies:
   flutter_test:
