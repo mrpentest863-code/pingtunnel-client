@@ -4,41 +4,47 @@ import 'package:crypto/crypto.dart';
 enum TunnelMode { proxy, vpn, proxyPerApp }
 
 // ============================================================
-// CLÉ SECRÈTE RECONSTRUITE EN 5 COUCHES
-// Aucun fragment ne contient la clé en clair
+// CLÉ SECRÈTE OBFUSQUÉE
+// - Fragmentée en base64
+// - Hashée en SHA-256
+// - Protégée par try/catch
 // ============================================================
 
 String _buildSecretKey() {
-  // Couche 1 : 4 fragments base64 (répartis)
-  final fragments = [
-    'UGluZ1R1',   // PingTu
-    'bm5lbFNl',   // nnelSe
-    'Y3JldEsy',   // cretK2
-    'MDI0IQ==',   // 024!
-  ];
-  
-  // Couche 2 : Assemblage
-  final assembled = fragments
-      .map((f) => utf8.decode(base64.decode(f)))
-      .join();
-  
-  // Couche 3 : Sel secret (encodé)
-  final salt = utf8.decode(base64.decode('UjNmUndSeF9LfGxUM3JfUzNjcjN0'));
-  
-  // Couche 4 : XOR entre la clé et le sel
-  final keyBytes = utf8.encode(assembled);
-  final saltBytes = utf8.encode(salt);
-  final xored = List<int>.generate(
-    keyBytes.length,
-    (i) => keyBytes[i] ^ saltBytes[i % saltBytes.length],
-  );
-  
-  // Couche 5 : SHA-512 + SHA-256 en cascade
-  final step1 = sha512.convert(xored).toString();
-  final step2 = sha256.convert(utf8.encode(step1)).toString();
-  
-  // Résultat final : 32 caractères
-  return step2.substring(0, 32);
+  try {
+    // 4 fragments base64 → "PingTunnelSecretKey2024!"
+    final fragments = [
+      'UGluZ1R1',
+      'bm5lbFNl',
+      'Y3JldEsy',
+      'MDI0IQ==',
+    ];
+
+    // Assembler
+    final assembled = fragments
+        .map((f) => utf8.decode(base64.decode(f)))
+        .join();
+
+    // Sel secret (base64 → "R3fRuRx_K|lT3r_S3cr3t")
+    final salt = utf8.decode(base64.decode('UjNmUndSeF9LfGxUM3JfUzNjcjN0'));
+
+    // XOR entre la clé et le sel
+    final keyBytes = utf8.encode(assembled);
+    final saltBytes = utf8.encode(salt);
+    final xored = List<int>.generate(
+      keyBytes.length,
+      (i) => keyBytes[i] ^ saltBytes[i % saltBytes.length],
+    );
+
+    // Double hash : SHA-512 puis SHA-256
+    final step1 = sha512.convert(xored).toString();
+    final step2 = sha256.convert(utf8.encode(step1)).toString();
+
+    return step2.substring(0, 32);
+  } catch (_) {
+    // Fallback si erreur
+    return "PingTunnelSecretKey2024!";
+  }
 }
 
 final String _secretKey = _buildSecretKey();
@@ -156,15 +162,21 @@ class TunnelConfig {
     };
   }
 
+  // Encoder avec clé secrète
   String encode() {
-    final jsonString = jsonEncode(toMap());
-    final bytes = utf8.encode(jsonString);
-    final encrypted = List<int>.generate(bytes.length, (i) {
-      return bytes[i] ^ _secretKey.codeUnitAt(i % _secretKey.length);
-    });
-    return base64Url.encode(encrypted);
+    try {
+      final jsonString = jsonEncode(toMap());
+      final bytes = utf8.encode(jsonString);
+      final encrypted = List<int>.generate(bytes.length, (i) {
+        return bytes[i] ^ _secretKey.codeUnitAt(i % _secretKey.length);
+      });
+      return base64Url.encode(encrypted);
+    } catch (_) {
+      throw Exception('Encode failed');
+    }
   }
 
+  // Décoder avec clé secrète
   static TunnelConfig decode(String encoded) {
     final encrypted = base64Url.decode(encoded);
     final decrypted = List<int>.generate(encrypted.length, (i) {
@@ -175,6 +187,7 @@ class TunnelConfig {
     return TunnelConfig.fromMap(map);
   }
 
+  // Créer depuis un map
   static TunnelConfig fromMap(Map<String, dynamic> map) {
     final modeStr = map['mode'] as String? ?? 'proxy';
     final mode = switch (modeStr) {
@@ -197,18 +210,20 @@ class TunnelConfig {
       interfaceName: map['interfaceName'] as String?,
       tunDevice: map['tunDevice'] as String?,
       dns: map['dns'] as String?,
-      proxyPerAppPackages: (map['proxyPerAppPackages'] as List?)?.cast<String>() ?? [],
+      proxyPerAppPackages:
+          (map['proxyPerAppPackages'] as List?)?.cast<String>() ?? [],
     );
   }
 
   static TunnelConfig parse(String uriText) {
     final uri = Uri.parse(uriText.trim());
-    if (uri.scheme != 'tns') {
-      throw const FormatException('URI scheme must be tns://');
+    if (uri.scheme != 'princ') {
+      throw const FormatException('URI scheme must be princ://');
     }
 
     String host = uri.host;
 
+    // Si c'est une URL encodée
     if (host == 'encoded' || (host.isEmpty && uri.path.isNotEmpty)) {
       final encoded = uri.path.replaceAll('/', '');
       if (encoded.isNotEmpty) {
@@ -236,7 +251,8 @@ class TunnelConfig {
       params['port'] ?? params['server_port'] ?? '',
     );
 
-    final modeValue = (params['mode'] ?? params['vpn'] ?? 'proxy').toLowerCase();
+    final modeValue = (params['mode'] ?? params['vpn'] ?? 'proxy')
+        .toLowerCase();
     final mode = switch (modeValue) {
       'vpn' || '1' => TunnelMode.vpn,
       'proxy_per_app' ||
@@ -246,22 +262,25 @@ class TunnelConfig {
       'app_proxy' => TunnelMode.proxyPerApp,
       _ => TunnelMode.proxy,
     };
-    final proxyPerAppPackages = (params['apps'] ?? '')
-        .split(',')
-        .map((value) => value.trim())
-        .where((value) => value.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final proxyPerAppPackages =
+        (params['apps'] ?? '')
+            .split(',')
+            .map((value) => value.trim())
+            .where((value) => value.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
 
-    final encryptValue = (params['encrypt'] ??
-            params['encrypt_mode'] ??
-            params['encryptMode'] ??
-            params['enc'] ??
-            '')
-        .toLowerCase();
+    final encryptValue =
+        (params['encrypt'] ??
+                params['encrypt_mode'] ??
+                params['encryptMode'] ??
+                params['enc'] ??
+                '')
+            .toLowerCase();
     final validEncryptModes = {'aes128', 'aes256', 'chacha20'};
-    final encryptMode = encryptValue.isEmpty ||
+    final encryptMode =
+        encryptValue.isEmpty ||
             encryptValue == '0' ||
             encryptValue == 'none' ||
             !validEncryptModes.contains(encryptValue)
