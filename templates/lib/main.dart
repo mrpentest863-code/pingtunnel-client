@@ -12,7 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'src/config.dart';
+import 'src/conffig.dart';
 import 'src/tunnel_controller.dart';
 
 const _buildVersionName = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
@@ -23,7 +23,7 @@ String _shortGitSha(String value) => value.length <= 8 ? value : value.substring
 String get _buildLabel => 'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
 // Phrase secrète pour ouvrir le formulaire de création manuelle
-const String _secretPhrase = ".../";
+const String _secretPhrase = "lll";
 
 Future<String> getDeviceHwid() async {
   final deviceInfo = DeviceInfoPlugin();
