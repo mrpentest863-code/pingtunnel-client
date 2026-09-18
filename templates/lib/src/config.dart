@@ -307,19 +307,24 @@ class TunnelConfig {
       );
     }
 
+    // --- Local port : type non-nullable garanti ---
     final localPortRaw = params['lport'] ?? params['local_port'];
-    final localPort = localPortRaw == null || localPortRaw.isEmpty
-        ? _defaultLocalSocksPort
-        : int.tryParse(localPortRaw);
-    if (localPortRaw != null &&
-        localPortRaw.isNotEmpty &&
-        localPort == null) {
-      throw FormatException('local_port must be an integer: "$localPortRaw"');
-    }
-    if (!_isValidPort(localPort)) {
-      throw FormatException(
-        'local_port out of range ($_minPort-$_maxPort): $localPort',
-      );
+    final int localPort;
+    if (localPortRaw == null || localPortRaw.isEmpty) {
+      localPort = _defaultLocalSocksPort;
+    } else {
+      final parsed = int.tryParse(localPortRaw);
+      if (parsed == null) {
+        throw FormatException(
+          'local_port must be an integer: "$localPortRaw"',
+        );
+      }
+      if (!_isValidPort(parsed)) {
+        throw FormatException(
+          'local_port out of range ($_minPort-$_maxPort): $parsed',
+        );
+      }
+      localPort = parsed;
     }
 
     // --- Auth ---
