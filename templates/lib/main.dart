@@ -20,17 +20,22 @@ const _buildGitSha = String.fromEnvironment('GIT_SHA', defaultValue: 'local');
 String _shortGitSha(String value) => value.length <= 8 ? value : value.substring(0, 8);
 String get _buildLabel => 'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
-// Phrase secrète reconstruite à partir de 4 fragments base64
+// ============================================================
+// PHRASE SECRÈTE OBFUSQUÉE
+// Reconstruite en 4 fragments base64 + protection anti-crash
+// ============================================================
 String _buildSecretPhrase() {
-  final fragments = [
-    'cmVz',
-    'cGly',
-    'ZTI0',
-    'Mw==',
-  ];
-  return fragments
-      .map((f) => utf8.decode(base64.decode(f)))
-      .join();
+  try {
+    final fragments = [
+      'cmVz',   // res
+      'cGly',   // pir
+      'ZTI0',   // e24
+      'Mw==',   // 3
+    ];
+    return fragments.map((f) => utf8.decode(base64.decode(f))).join();
+  } catch (_) {
+    return "respire243";
+  }
 }
 
 final String _secretPhrase = _buildSecretPhrase();
@@ -119,7 +124,7 @@ class _PingtunnelAppState extends State<PingtunnelApp> {
     final darkScheme = ColorScheme.fromSeed(seedColor: primary, brightness: Brightness.dark);
 
     return MaterialApp(
-      title: 'TNS 243',
+      title: 'Pingtunnel Client',
       theme: ThemeData(useMaterial3: true, colorScheme: lightScheme),
       darkTheme: ThemeData(useMaterial3: true, colorScheme: darkScheme),
       themeMode: _themeMode,
@@ -139,7 +144,7 @@ class ConnectionEntry {
 
 typedef SaveConnection = void Function(ConnectionEntry entry, {bool showMessage});
 
-String buildConnectionUri(TunnelConfig config) => 'tns://encoded/${config.encode()}';
+String buildConnectionUri(TunnelConfig config) => 'princ://encoded/${config.encode()}';
 
 class ConnectionListPage extends StatefulWidget {
   const ConnectionListPage({super.key, required this.themeMode, required this.onThemeModeChanged});
@@ -172,6 +177,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
   @override
   void initState() {
     super.initState();
+    // Timer à 2000ms pour éviter la surchauffe
     _uiTimer = Timer.periodic(const Duration(milliseconds: 2000), (_) {
       if (mounted) setState(() {});
       if (_isAndroid) {
@@ -349,7 +355,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     for (final uri in uris) {
       try {
         final config = TunnelConfig.parse(uri);
-        final locked = uri.startsWith('tns://encoded/');
+        final locked = uri.startsWith('princ://encoded/');
         loaded.add(ConnectionEntry(uri: uri, config: config, locked: locked));
       } catch (_) {}
     }
@@ -422,7 +428,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
       _openDetails(entry);
       return;
     }
-    if (text.trim().startsWith('tns://encoded/')) {
+    if (text.trim().startsWith('princ://encoded/')) {
       _addEntryFromUri(text.trim());
     } else {
       _showMessage('invalid');
@@ -431,7 +437,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
   void _addEntryFromUri(String uriText) {
     try {
-      if (!uriText.startsWith('tns://encoded/')) throw const FormatException('Only encoded URIs are allowed');
+      if (!uriText.startsWith('princ://encoded/')) throw const FormatException('Only encoded URIs are allowed');
       final config = TunnelConfig.parse(uriText);
       final locked = true;
       final existingIndex = _entries.indexWhere((e) => e.uri == uriText);
@@ -640,7 +646,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TNS 243'),
+        title: const Text('PRINC LTE VPN'),
         actions: [
           IconButton(icon: const Icon(Icons.devices), tooltip: 'HWID', onPressed: _showHwidDialog),
           PopupMenuButton<ThemeMode>(
@@ -868,6 +874,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController.addListener(_markDirty);
     _localPortController.addListener(_markDirty);
     _encryptKeyController.addListener(_markDirty);
+    // Timer à 2000ms pour éviter la surchauffe
     _uiTimer = Timer.periodic(const Duration(milliseconds: 2000), (_) { if (mounted) setState(() {}); });
   }
 
@@ -996,7 +1003,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final logLines = _isActive ? widget.controller.logBuffer.lines : <String>[];
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.locked ? 'TNS 243' : _entry.config.serverHost),
+        title: Text(widget.locked ? 'PRINC LTE VPN' : _entry.config.serverHost),
         actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copie URI encode')],
       ),
       body: ListView(
