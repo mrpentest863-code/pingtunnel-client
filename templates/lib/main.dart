@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
+import 'package:android_id/android_id.dart';
 import 'package:crypto/crypto.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/material.dart';
@@ -20,56 +22,64 @@ const _buildGitSha = String.fromEnvironment('GIT_SHA', defaultValue: 'local');
 String _shortGitSha(String value) => value.length <= 8 ? value : value.substring(0, 8);
 String get _buildLabel => 'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
-// ============================================================
-// PHRASE SECRÈTE OBFUSQUÉE
-// Reconstruite en 4 fragments base64 + protection anti-crash
-// ============================================================
-String _buildSecretPhrase() {
-  try {
-    final fragments = [
-      'cmVz',   // res
-      'cGly',   // pir
-      'ZTI0',   // e24
-      'Mw==',   // 3
-    ];
-    return fragments.map((f) => utf8.decode(base64.decode(f))).join();
-  } catch (_) {
-    return "respire243";
-  }
-}
-
-final String _secretPhrase = _buildSecretPhrase();
+// Phrase secrète pour ouvrir le formulaire de création manuelle
+const String _secretPhrase = "respire";
 
 Future<String> getDeviceHwid() async {
   final deviceInfo = DeviceInfoPlugin();
-  String rawId = '';
+  final parts = <String>[];
 
   try {
     if (Platform.isAndroid) {
+      // ANDROID_ID réel (Settings.Secure.ANDROID_ID) via le paquet dédié.
+      // NB : device_info_plus ne fournit plus androidId fiable, et son
+      // champ `id` correspond à Build.ID (identifiant de firmware, PAS
+      // unique par appareil).
+      final aid = await const AndroidId().getId();
+      if (aid != null && aid.isNotEmpty) parts.add('aid:$aid');
+
+      // Complément : fingerprint + modèle pour désambiguïser les clones.
       final android = await deviceInfo.androidInfo;
-      rawId = android.id;
+      if (android.fingerprint.isNotEmpty) {
+        parts.add('fp:${android.fingerprint}');
+      }
+      if (android.model.isNotEmpty) parts.add('mo:${android.model}');
     } else if (Platform.isIOS) {
       final ios = await deviceInfo.iosInfo;
-      rawId = ios.identifierForVendor ?? 'unknown';
+      if (ios.identifierForVendor != null) {
+        parts.add('idfv:${ios.identifierForVendor}');
+      }
     } else if (Platform.isLinux) {
       try {
-        rawId = File('/etc/machine-id').readAsStringSync().trim();
+        parts.add('mid:${File('/etc/machine-id').readAsStringSync().trim()}');
       } catch (_) {
         final info = await deviceInfo.linuxInfo;
-        rawId = info.machineId ?? 'unknown';
+        if (info.machineId != null) parts.add('mid:${info.machineId}');
       }
     } else if (Platform.isWindows) {
       final info = await deviceInfo.windowsInfo;
-      rawId = info.deviceId;
+      parts.add('did:${info.deviceId}');
     } else if (Platform.isMacOS) {
       final info = await deviceInfo.macOsInfo;
-      rawId = info.systemGUID ?? 'unknown';
+      parts.add('guid:${info.systemGUID ?? ""}');
     }
-  } catch (_) {
-    rawId = 'unknown';
+  } catch (_) {}
+
+  // Si AUCUN identifiant matériel n'a pu être lu → UUID persistant unique
+  // (garantit l'unicité par appareil même si toute lecture échoue).
+  if (parts.isEmpty) {
+    final prefs = await SharedPreferences.getInstance();
+    var fallback = prefs.getString('hwid_fallback');
+    if (fallback == null) {
+      final rnd = Random.secure();
+      fallback =
+          List.generate(32, (_) => rnd.nextInt(16).toRadixString(16)).join();
+      await prefs.setString('hwid_fallback', fallback);
+    }
+    parts.add('fb:$fallback');
   }
 
-  final digest = sha256.convert(utf8.encode(rawId));
+  final digest = sha256.convert(utf8.encode(parts.join('|')));
   return digest.toString().substring(0, 32);
 }
 
@@ -177,11 +187,10 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
   @override
   void initState() {
     super.initState();
-    // Timer à 2000ms pour éviter la surchauffe
-    _uiTimer = Timer.periodic(const Duration(milliseconds: 2000), (_) {
+    _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (mounted) setState(() {});
       if (_isAndroid) {
-        _androidSyncTick = (_androidSyncTick + 1) % 6;
+        _androidSyncTick = (_androidSyncTick + 1) % 2;
         if (_androidSyncTick == 0) unawaited(_syncAndroidRuntimeState());
       }
     });
@@ -874,8 +883,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController.addListener(_markDirty);
     _localPortController.addListener(_markDirty);
     _encryptKeyController.addListener(_markDirty);
-    // Timer à 2000ms pour éviter la surchauffe
-    _uiTimer = Timer.periodic(const Duration(milliseconds: 2000), (_) { if (mounted) setState(() {}); });
+    _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) { if (mounted) setState(() {}); });
   }
 
   @override
