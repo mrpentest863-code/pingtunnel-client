@@ -83,6 +83,13 @@ jobs:
               exit 1
             fi
             echo "CI_BUILD_NAME=${build_name}" >> "${GITHUB_ENV}"
+          else
+            # Correctif : sur un push/PR sans tag, CI_BUILD_NAME n'était
+            # jamais défini, donc FLUTTER_BUILD_NAME était vide dans les
+            # étapes suivantes. Flutter attend un nom de version au format
+            # X.Y.Z pour --build-name ; une chaîne vide peut faire échouer
+            # le build ou produire un binaire avec une version incohérente.
+            echo "CI_BUILD_NAME=0.0.0" >> "${GITHUB_ENV}"
           fi
 
       - name: Build artifacts via pack.sh
@@ -98,30 +105,27 @@ jobs:
           chmod +x pack.sh
           ./pack.sh
 
-      - name: Build Android CI (debug, unsigned, obfuscated)
+      - name: Build Android CI (debug, unsigned)
         if: matrix.target == 'android-ci'
         shell: bash
         run: |
           chmod +x scripts/bootstrap_flutter.sh
           ./scripts/bootstrap_flutter.sh
-          (cd app && flutter build apk --debug --obfuscate --split-debug-info=./debug_info)
+          (cd app && flutter build apk --debug)
 
+      # Correctif : renommé de "pingtunnel-android-debug" à
+      # "android-ci-debug-apk". Le job `release` télécharge ses assets avec
+      # le pattern `pingtunnel-*`, qui matchait aussi cet artefact de debug
+      # non signé — il se retrouvait donc publié comme asset de la release
+      # GitHub aux côtés de l'APK signé. Le renommer en dehors du préfixe
+      # "pingtunnel-" l'exclut proprement de ce pattern.
       - name: Upload Android APK
         if: matrix.target == 'android-ci'
         uses: actions/upload-artifact@v4
         with:
-          name: pingtunnel-android-debug
+          name: android-ci-debug-apk
           path: app/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
-
-      - name: Upload Android debug info
-        if: matrix.target == 'android-ci'
-        uses: actions/upload-artifact@v4
-        with:
-          name: pingtunnel-android-debug-info
-          path: app/debug_info/
-          if-no-files-found: warn
-          retention-days: 7
 
       - name: Zip Windows bundles for release assets
         if: matrix.target == 'windows'
@@ -178,6 +182,19 @@ jobs:
             echo "CI_BUILD_NAME=${build_name}" >> "${GITHUB_ENV}"
           fi
 
+      # Correctif potentiel : le fichier keystore est maintenant écrit dans
+      # app/android/app/ au lieu de app/android/. La plupart des
+      # build.gradle générés par le template Flutter résolvent
+      # `storeFile file(keystoreProperties['storeFile'])` relativement au
+      # module `android/app/`, pas à `android/` où vivait key.properties.
+      # Avec l'ancien chemin (app/android/release-keystore.jks) et
+      # storeFile=release-keystore.jks sans "../", Gradle cherchait le
+      # fichier dans android/app/release-keystore.jks — où il n'existait
+      # pas — et la signature échouait probablement.
+      # ⚠️ Si ton android/app/build.gradle utilise
+      # `rootProject.file(keystoreProperties['storeFile'])` plutôt que
+      # `file(...)`, l'ancien chemin était en fait correct : dans ce cas,
+      # remets le fichier dans app/android/ au lieu de app/android/app/.
       - name: Prepare Android signing
         shell: bash
         env:
@@ -193,7 +210,7 @@ jobs:
           test -n "${ANDROID_KEY_ALIAS}"
           test -n "${ANDROID_KEY_PASSWORD}"
 
-          printf '%s' "${ANDROID_KEYSTORE_B64}" | base64 --decode > app/android/release-keystore.jks
+          printf '%s' "${ANDROID_KEYSTORE_B64}" | base64 --decode > app/android/app/release-keystore.jks
 
           {
             printf 'storePassword=%s\n' "${ANDROID_KEYSTORE_PASSWORD}"
@@ -218,7 +235,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -f app/android/key.properties app/android/release-keystore.jks
+          rm -f app/android/key.properties app/android/app/release-keystore.jks
 
       - name: Upload Android release artifacts
         uses: actions/upload-artifact@v4
@@ -226,14 +243,6 @@ jobs:
           name: pingtunnel-android
           path: dist/*.apk
           if-no-files-found: error
-
-      - name: Upload Android release debug info
-        uses: actions/upload-artifact@v4
-        with:
-          name: pingtunnel-android-release-debug-info
-          path: app/debug_info/
-          if-no-files-found: warn
-          retention-days: 7
 
   release:
     name: release
