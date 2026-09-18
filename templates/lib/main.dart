@@ -23,7 +23,7 @@ String _shortGitSha(String value) => value.length <= 8 ? value : value.substring
 String get _buildLabel => 'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
 // Phrase secrète pour ouvrir le formulaire de création manuelle
-const String _secretPhrase = "respire";
+const String _secretPhrase = ".../";
 
 Future<String> getDeviceHwid() async {
   final deviceInfo = DeviceInfoPlugin();
