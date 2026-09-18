@@ -12,7 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
-import 'src/conffig.dart';
+import 'src/config.dart';
 import 'src/tunnel_controller.dart';
 
 const _buildVersionName = String.fromEnvironment('APP_VERSION', defaultValue: 'dev');
