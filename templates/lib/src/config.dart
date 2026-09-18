@@ -1,57 +1,30 @@
 import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:crypto/crypto.dart';
+import 'package:encrypt/encrypt.dart' as enc;
 
 enum TunnelMode { proxy, vpn, proxyPerApp }
 
-// ============================================================
-// CLÉ SECRÈTE OBFUSQUÉE
-// - Fragmentée en base64
-// - Hashée en SHA-256
-// - Protégée par try/catch
-// ============================================================
+// Clé secrète servant à dériver la clé AES-256 (via SHA-256).
+const String _secretKey = ".........................................................";
 
-String _buildSecretKey() {
-  try {
-    // 4 fragments base64 → "PingTunnelSecretKey2024!"
-    final fragments = [
-      'UGluZ1R1',
-      'bm5lbFNl',
-      'Y3JldEsy',
-      'MDI0IQ==',
-    ];
+const int _defaultLocalSocksPort = 1080;
+const int _minPort = 1;
+const int _maxPort = 65535;
+const Set<String> _validEncryptModes = {'aes128', 'aes256', 'chacha20'};
+const int _aesIvLength = 16;
 
-    // Assembler
-    final assembled = fragments
-        .map((f) => utf8.decode(base64.decode(f)))
-        .join();
+// Sentinelle pour copyWith.
+const Object _unset = Object();
 
-    // Sel secret (base64 → "R3fRuRx_K|lT3r_S3cr3t")
-    final salt = utf8.decode(base64.decode('UjNmUndSeF9LfGxUM3JfUzNjcjN0'));
+// Clé AES-256 dérivée du secret (32 octets = SHA-256).
+final enc.Key _aesKey = enc.Key(
+  Uint8List.fromList(sha256.convert(utf8.encode(_secretKey)).bytes),
+);
 
-    // XOR entre la clé et le sel
-    final keyBytes = utf8.encode(assembled);
-    final saltBytes = utf8.encode(salt);
-    final xored = List<int>.generate(
-      keyBytes.length,
-      (i) => keyBytes[i] ^ saltBytes[i % saltBytes.length],
-    );
-
-    // Double hash : SHA-512 puis SHA-256
-    final step1 = sha512.convert(xored).toString();
-    final step2 = sha256.convert(utf8.encode(step1)).toString();
-
-    return step2.substring(0, 32);
-  } catch (_) {
-    // Fallback si erreur
-    return "PingTunnelSecretKey2024!";
-  }
-}
-
-final String _secretKey = _buildSecretKey();
-
-// ============================================================
-// FIN DE LA ZONE PROTÉGÉE
-// ============================================================
+bool _isValidPort(int? port) =>
+    port == null || (port >= _minPort && port <= _maxPort);
 
 class TunnelConfig {
   TunnelConfig({
@@ -88,34 +61,44 @@ class TunnelConfig {
 
   TunnelConfig copyWith({
     String? serverHost,
-    int? serverPort,
+    Object? serverPort = _unset,
     int? localSocksPort,
-    int? key,
-    String? username,
-    String? password,
-    String? hwid,
+    Object? key = _unset,
+    Object? username = _unset,
+    Object? password = _unset,
+    Object? hwid = _unset,
     TunnelMode? mode,
-    String? encryptMode,
-    String? encryptKey,
-    String? interfaceName,
-    String? tunDevice,
-    String? dns,
+    Object? encryptMode = _unset,
+    Object? encryptKey = _unset,
+    Object? interfaceName = _unset,
+    Object? tunDevice = _unset,
+    Object? dns = _unset,
     List<String>? proxyPerAppPackages,
   }) {
     return TunnelConfig(
       serverHost: serverHost ?? this.serverHost,
-      serverPort: serverPort ?? this.serverPort,
+      serverPort:
+          identical(serverPort, _unset) ? this.serverPort : serverPort as int?,
       localSocksPort: localSocksPort ?? this.localSocksPort,
-      key: key ?? this.key,
-      username: username ?? this.username,
-      password: password ?? this.password,
-      hwid: hwid ?? this.hwid,
+      key: identical(key, _unset) ? this.key : key as int?,
+      username:
+          identical(username, _unset) ? this.username : username as String?,
+      password:
+          identical(password, _unset) ? this.password : password as String?,
+      hwid: identical(hwid, _unset) ? this.hwid : hwid as String?,
       mode: mode ?? this.mode,
-      encryptMode: encryptMode ?? this.encryptMode,
-      encryptKey: encryptKey ?? this.encryptKey,
-      interfaceName: interfaceName ?? this.interfaceName,
-      tunDevice: tunDevice ?? this.tunDevice,
-      dns: dns ?? this.dns,
+      encryptMode: identical(encryptMode, _unset)
+          ? this.encryptMode
+          : encryptMode as String?,
+      encryptKey: identical(encryptKey, _unset)
+          ? this.encryptKey
+          : encryptKey as String?,
+      interfaceName: identical(interfaceName, _unset)
+          ? this.interfaceName
+          : interfaceName as String?,
+      tunDevice:
+          identical(tunDevice, _unset) ? this.tunDevice : tunDevice as String?,
+      dns: identical(dns, _unset) ? this.dns : dns as String?,
       proxyPerAppPackages: proxyPerAppPackages != null
           ? List<String>.from(proxyPerAppPackages)
           : this.proxyPerAppPackages,
@@ -130,11 +113,11 @@ class TunnelConfig {
   }
 
   int localProxyBackendSocksPort() {
-    if (localSocksPort < 1 || localSocksPort > 65535) {
-      return 1081;
+    if (localSocksPort < _minPort || localSocksPort > _maxPort) {
+      return _defaultLocalSocksPort + 1;
     }
-    if (localSocksPort == 65535) {
-      return 65534;
+    if (localSocksPort == _maxPort) {
+      return _maxPort - 1;
     }
     return localSocksPort + 1;
   }
@@ -162,56 +145,122 @@ class TunnelConfig {
     };
   }
 
-  // Encoder avec clé secrète
+  /// Chiffre la config en AES-256-CBC avec IV aléatoire.
+  /// Format : base64url( IV(16 octets) || ciphertext ).
   String encode() {
-    try {
-      final jsonString = jsonEncode(toMap());
-      final bytes = utf8.encode(jsonString);
-      final encrypted = List<int>.generate(bytes.length, (i) {
-        return bytes[i] ^ _secretKey.codeUnitAt(i % _secretKey.length);
-      });
-      return base64Url.encode(encrypted);
-    } catch (_) {
-      throw Exception('Encode failed');
-    }
+    final jsonString = jsonEncode(toMap());
+    final iv = enc.IV.fromSecureRandom(_aesIvLength);
+    final encrypter = enc.Encrypter(enc.AES(_aesKey));
+    final encrypted = encrypter.encrypt(jsonString, iv: iv);
+
+    final combined = Uint8List(iv.bytes.length + encrypted.bytes.length);
+    combined.setRange(0, iv.bytes.length, iv.bytes);
+    combined.setRange(iv.bytes.length, combined.length, encrypted.bytes);
+
+    return base64Url.encode(combined);
   }
 
-  // Décoder avec clé secrète
+  /// Déchiffre une config produite par [encode].
   static TunnelConfig decode(String encoded) {
-    final encrypted = base64Url.decode(encoded);
-    final decrypted = List<int>.generate(encrypted.length, (i) {
-      return encrypted[i] ^ _secretKey.codeUnitAt(i % _secretKey.length);
-    });
-    final jsonString = utf8.decode(decrypted);
+    final Uint8List bytes;
+    try {
+      bytes = base64Url.decode(encoded);
+    } on FormatException catch (e) {
+      throw FormatException('Invalid encoded config: ${e.message}');
+    }
+    if (bytes.length <= _aesIvLength) {
+      throw const FormatException('Encoded config too short');
+    }
+
+    final iv = enc.IV(Uint8List.fromList(bytes.sublist(0, _aesIvLength)));
+    final ciphertext =
+        enc.Encrypted(Uint8List.fromList(bytes.sublist(_aesIvLength)));
+    final encrypter = enc.Encrypter(enc.AES(_aesKey));
+
+    final String jsonString;
+    try {
+      jsonString = encrypter.decrypt(ciphertext, iv: iv);
+    } catch (e) {
+      throw FormatException('Failed to decrypt config: $e');
+    }
+
     final map = jsonDecode(jsonString) as Map<String, dynamic>;
     return TunnelConfig.fromMap(map);
   }
 
-  // Créer depuis un map
+  /// Construit depuis une map (avec vérifications explicites).
   static TunnelConfig fromMap(Map<String, dynamic> map) {
+    final host = map['serverHost'];
+    if (host is! String || host.isEmpty) {
+      throw const FormatException(
+        'fromMap: "serverHost" is required and must be a non-empty string',
+      );
+    }
+
+    final serverPort = map['serverPort'];
+    if (serverPort != null && serverPort is! int) {
+      throw const FormatException(
+        'fromMap: "serverPort" must be an int or null',
+      );
+    }
+    if (!_isValidPort(serverPort as int?)) {
+      throw FormatException(
+        'fromMap: "serverPort" out of range ($_minPort-$_maxPort): $serverPort',
+      );
+    }
+
+    final localSocksPortRaw = map['localSocksPort'];
+    if (localSocksPortRaw != null && localSocksPortRaw is! int) {
+      throw const FormatException(
+        'fromMap: "localSocksPort" must be an int or null',
+      );
+    }
+    final localSocksPort =
+        (localSocksPortRaw as int?) ?? _defaultLocalSocksPort;
+    if (!_isValidPort(localSocksPort)) {
+      throw FormatException(
+        'fromMap: "localSocksPort" out of range ($_minPort-$_maxPort): '
+        '$localSocksPort',
+      );
+    }
+
     final modeStr = map['mode'] as String? ?? 'proxy';
     final mode = switch (modeStr) {
       'vpn' => TunnelMode.vpn,
       'proxy_per_app' => TunnelMode.proxyPerApp,
-      _ => TunnelMode.proxy,
+      'proxy' => TunnelMode.proxy,
+      _ => throw FormatException('fromMap: invalid mode "$modeStr"'),
     };
 
+    final encryptMode = map['encryptMode'] as String?;
+    if (encryptMode != null && !_validEncryptModes.contains(encryptMode)) {
+      throw FormatException(
+        'fromMap: invalid encryptMode "$encryptMode" '
+        '(allowed: ${_validEncryptModes.join(", ")})',
+      );
+    }
+
+    final packages = (map['proxyPerAppPackages'] as List?)
+            ?.map((e) => e?.toString() ?? '')
+            .where((e) => e.isNotEmpty)
+            .toList() ??
+        const <String>[];
+
     return TunnelConfig(
-      serverHost: map['serverHost'] as String,
-      serverPort: map['serverPort'] as int?,
-      localSocksPort: map['localSocksPort'] as int? ?? 1080,
+      serverHost: host,
+      serverPort: serverPort as int?,
+      localSocksPort: localSocksPort,
       key: map['key'] as int?,
       username: map['username'] as String?,
       password: map['password'] as String?,
       hwid: map['hwid'] as String?,
       mode: mode,
-      encryptMode: map['encryptMode'] as String?,
+      encryptMode: encryptMode,
       encryptKey: map['encryptKey'] as String?,
       interfaceName: map['interfaceName'] as String?,
       tunDevice: map['tunDevice'] as String?,
       dns: map['dns'] as String?,
-      proxyPerAppPackages:
-          (map['proxyPerAppPackages'] as List?)?.cast<String>() ?? [],
+      proxyPerAppPackages: packages,
     );
   }
 
@@ -239,29 +288,70 @@ class TunnelConfig {
     }
 
     final params = uri.queryParameters;
+
+    // --- Ports ---
+    final serverPortRaw = params['port'] ?? params['server_port'];
+    final serverPort = serverPortRaw == null || serverPortRaw.isEmpty
+        ? null
+        : int.tryParse(serverPortRaw);
+    if (serverPortRaw != null &&
+        serverPortRaw.isNotEmpty &&
+        serverPort == null) {
+      throw FormatException(
+        'server_port must be an integer: "$serverPortRaw"',
+      );
+    }
+    if (!_isValidPort(serverPort)) {
+      throw FormatException(
+        'server_port out of range ($_minPort-$_maxPort): $serverPort',
+      );
+    }
+
+    final localPortRaw = params['lport'] ?? params['local_port'];
+    final localPort = localPortRaw == null || localPortRaw.isEmpty
+        ? _defaultLocalSocksPort
+        : int.tryParse(localPortRaw);
+    if (localPortRaw != null &&
+        localPortRaw.isNotEmpty &&
+        localPort == null) {
+      throw FormatException('local_port must be an integer: "$localPortRaw"');
+    }
+    if (!_isValidPort(localPort)) {
+      throw FormatException(
+        'local_port out of range ($_minPort-$_maxPort): $localPort',
+      );
+    }
+
+    // --- Auth ---
     final keyText = params['key'] ?? '';
-    final key = keyText.isEmpty ? null : int.tryParse(keyText);
+    final int? key;
+    if (keyText.isEmpty) {
+      key = null;
+    } else {
+      key = int.tryParse(keyText);
+      if (key == null) {
+        throw const FormatException('Key must be an integer');
+      }
+    }
     final username = params['user'] ?? params['username'];
     final password = params['pass'] ?? params['password'];
     final hwid = params['hwid'];
 
-    final localPort =
-        int.tryParse(params['lport'] ?? params['local_port'] ?? '') ?? 1080;
-    final serverPort = int.tryParse(
-      params['port'] ?? params['server_port'] ?? '',
-    );
-
-    final modeValue = (params['mode'] ?? params['vpn'] ?? 'proxy')
-        .toLowerCase();
+    // --- Mode ---
+    final modeValue =
+        (params['mode'] ?? params['vpn'] ?? 'proxy').toLowerCase();
     final mode = switch (modeValue) {
       'vpn' || '1' => TunnelMode.vpn,
       'proxy_per_app' ||
       'proxy-per-app' ||
       'per_app' ||
       'app' ||
-      'app_proxy' => TunnelMode.proxyPerApp,
-      _ => TunnelMode.proxy,
+      'app_proxy' =>
+        TunnelMode.proxyPerApp,
+      'proxy' || '0' || '' => TunnelMode.proxy,
+      _ => throw FormatException('Invalid mode: "$modeValue"'),
     };
+
     final proxyPerAppPackages =
         (params['apps'] ?? '')
             .split(',')
@@ -271,21 +361,26 @@ class TunnelConfig {
             .toList()
           ..sort();
 
-    final encryptValue =
+    // --- Chiffrement : mode invalide = erreur explicite ---
+    final rawEncrypt =
         (params['encrypt'] ??
                 params['encrypt_mode'] ??
                 params['encryptMode'] ??
                 params['enc'] ??
                 '')
             .toLowerCase();
-    final validEncryptModes = {'aes128', 'aes256', 'chacha20'};
-    final encryptMode =
-        encryptValue.isEmpty ||
-            encryptValue == '0' ||
-            encryptValue == 'none' ||
-            !validEncryptModes.contains(encryptValue)
-        ? null
-        : encryptValue;
+    final String? encryptMode;
+    if (rawEncrypt.isEmpty || rawEncrypt == '0' || rawEncrypt == 'none') {
+      encryptMode = null;
+    } else if (_validEncryptModes.contains(rawEncrypt)) {
+      encryptMode = rawEncrypt;
+    } else {
+      throw FormatException(
+        'Invalid encrypt mode "$rawEncrypt" '
+        '(allowed: ${_validEncryptModes.join(", ")}, none)',
+      );
+    }
+
     final encryptKey =
         params['encrypt-key'] ?? params['encrypt_key'] ?? params['encryptKey'];
 
@@ -299,9 +394,6 @@ class TunnelConfig {
     }
     if (encryptMode != null && (encryptKey == null || encryptKey.isEmpty)) {
       throw const FormatException('Missing encrypt_key');
-    }
-    if (keyText.isNotEmpty && key == null) {
-      throw const FormatException('Key must be an integer');
     }
 
     return TunnelConfig(
