@@ -655,7 +655,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('PRINC LTE VPN'),
+        title: const Text('TNS 243'),
         actions: [
           IconButton(icon: const Icon(Icons.devices), tooltip: 'HWID', onPressed: _showHwidDialog),
           PopupMenuButton<ThemeMode>(
@@ -1011,7 +1011,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final logLines = _isActive ? widget.controller.logBuffer.lines : <String>[];
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.locked ? 'PRINC LTE VPN' : _entry.config.serverHost),
+        title: Text(widget.locked ? 'TNS 243' : _entry.config.serverHost),
         actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copie URI encode')],
       ),
       body: ListView(
