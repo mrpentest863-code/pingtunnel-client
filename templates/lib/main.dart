@@ -364,7 +364,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     for (final uri in uris) {
       try {
         final config = TunnelConfig.parse(uri);
-        final locked = uri.startsWith('princ://encoded/');
+        final locked = uri.startsWith('tns://encoded/');
         loaded.add(ConnectionEntry(uri: uri, config: config, locked: locked));
       } catch (_) {}
     }
@@ -437,7 +437,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
       _openDetails(entry);
       return;
     }
-    if (text.trim().startsWith('princ://encoded/')) {
+    if (text.trim().startsWith('tns://encoded/')) {
       _addEntryFromUri(text.trim());
     } else {
       _showMessage('invalid');
@@ -446,7 +446,7 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
   void _addEntryFromUri(String uriText) {
     try {
-      if (!uriText.startsWith('princ://encoded/')) throw const FormatException('Only encoded URIs are allowed');
+      if (!uriText.startsWith('tns://encoded/')) throw const FormatException('Only encoded URIs are allowed');
       final config = TunnelConfig.parse(uriText);
       final locked = true;
       final existingIndex = _entries.indexWhere((e) => e.uri == uriText);
