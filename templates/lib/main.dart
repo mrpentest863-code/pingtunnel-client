@@ -154,7 +154,7 @@ class ConnectionEntry {
 
 typedef SaveConnection = void Function(ConnectionEntry entry, {bool showMessage});
 
-String buildConnectionUri(TunnelConfig config) => 'princ://encoded/${config.encode()}';
+String buildConnectionUri(TunnelConfig config) => 'tns://encoded/${config.encode()}';
 
 class ConnectionListPage extends StatefulWidget {
   const ConnectionListPage({super.key, required this.themeMode, required this.onThemeModeChanged});
