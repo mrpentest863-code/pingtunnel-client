@@ -1011,7 +1011,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final logLines = _isActive ? widget.controller.logBuffer.lines : <String>[];
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.locked ? 'TNS 243' : _entry.config.serverHost),
+        title: Text(widget.locked ? 'BRAVE VPN' : _entry.config.serverHost),
         actions: [IconButton(onPressed: _copyUri, icon: const Icon(Icons.copy), tooltip: 'Copie URI encode')],
       ),
       body: ListView(
