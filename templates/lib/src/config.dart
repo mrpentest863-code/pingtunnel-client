@@ -266,8 +266,8 @@ class TunnelConfig {
 
   static TunnelConfig parse(String uriText) {
     final uri = Uri.parse(uriText.trim());
-    if (uri.scheme != 'tns') {
-      throw const FormatException('URI scheme must be tns://');
+    if (uri.scheme != 'brave') {
+      throw const FormatException('URI scheme must be brave://');
     }
 
     String host = uri.host;
