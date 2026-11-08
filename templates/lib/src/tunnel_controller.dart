@@ -5,6 +5,7 @@ import 'android_runner.dart';
 import 'config.dart';
 import 'desktop_runner.dart';
 import 'log_buffer.dart';
+import 'request_tunnel_runner.dart';
 import 'socks5_probe.dart';
 
 enum TunnelStatus { disconnected, connecting, connected, error }
@@ -13,19 +14,22 @@ class TunnelController {
   TunnelController() : logBuffer = LogBuffer(), assets = AssetManager() {
     _desktopRunner = DesktopRunner(assets: assets, logBuffer: logBuffer);
     _androidRunner = AndroidRunner();
+    _requestTunnelRunner = RequestTunnelRunner(logBuffer: logBuffer);
   }
 
   final LogBuffer logBuffer;
   final AssetManager assets;
   late final DesktopRunner _desktopRunner;
   late final AndroidRunner _androidRunner;
+  late final RequestTunnelRunner _requestTunnelRunner;
 
   TunnelStatus status = TunnelStatus.disconnected;
   String? lastError;
 
   Future<String> testConnection(TunnelConfig config) async {
     if (config.mode == TunnelMode.vpn ||
-        config.mode == TunnelMode.proxyPerApp) {
+        config.mode == TunnelMode.proxyPerApp ||
+        config.mode == TunnelMode.requestTunnel) {
       final socksProbe = Socks5Probe();
       logBuffer.add('[test] VPN mode: checking tunnel core via SOCKS5...');
       try {
@@ -58,8 +62,16 @@ class TunnelController {
 
     try {
       final runtimeConfig = await _resolveServerHost(config);
+
       if (Platform.isAndroid) {
-        if (runtimeConfig.mode == TunnelMode.vpn ||
+        if (runtimeConfig.mode == TunnelMode.requestTunnel) {
+          final ok = await _androidRunner.prepareVpn();
+          if (!ok) {
+            throw StateError('VPN permission not granted');
+          }
+          await _requestTunnelRunner.start(runtimeConfig);
+          await _androidRunner.startVpn(runtimeConfig);
+        } else if (runtimeConfig.mode == TunnelMode.vpn ||
             runtimeConfig.mode == TunnelMode.proxyPerApp) {
           final ok = await _androidRunner.prepareVpn();
           if (!ok) {
@@ -70,6 +82,11 @@ class TunnelController {
           await _androidRunner.startProxy(runtimeConfig);
         }
       } else {
+        if (runtimeConfig.mode == TunnelMode.requestTunnel) {
+          throw UnsupportedError(
+            'Request tunnel mode is only supported on Android',
+          );
+        }
         if (runtimeConfig.mode == TunnelMode.proxy) {
           await _desktopRunner.startProxy(runtimeConfig);
         } else {
@@ -87,6 +104,9 @@ class TunnelController {
     } catch (err) {
       lastError = err.toString();
       status = TunnelStatus.error;
+      try {
+        await _requestTunnelRunner.stop();
+      } catch (_) {}
       rethrow;
     }
   }
@@ -97,6 +117,7 @@ class TunnelController {
     } else {
       await _desktopRunner.stop();
     }
+    await _requestTunnelRunner.stop();
     status = TunnelStatus.disconnected;
   }
 
@@ -136,7 +157,7 @@ class TunnelController {
 
       InternetAddress? ipv4;
       for (final address in resolved) {
-        if (address.type == InternetAddressType.IPv4) {
+        if (address.type == InternetAddressType.ipv4) {
           ipv4 = address;
           break;
         }
