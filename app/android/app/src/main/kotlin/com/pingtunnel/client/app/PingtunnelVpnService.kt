@@ -151,7 +151,15 @@ class PingtunnelVpnService : VpnService() {
         }
         tunFd = fd
 
-        pingtunnelProcess = startPingtunnel(config)
+        // ─── MODIFICATION ICI ───
+        // En mode request_tunnel, le SOCKS5 local est fourni par Dart
+        // (RequestTunnelRunner). On ne lance donc PAS le binaire pingtunnel.
+        val isRequestTunnel = config.mode.equals("request_tunnel", ignoreCase = true)
+        if (!isRequestTunnel) {
+            pingtunnelProcess = startPingtunnel(config)
+        }
+        // ────────────────────────
+
         tun2socksProcess = startTun2socks(config, tunFd!!)
     }
 
@@ -210,7 +218,7 @@ class PingtunnelVpnService : VpnService() {
         val isProxyPerAppMode = config?.mode?.equals("proxy_per_app", ignoreCase = true) == true
         val notification = ServiceNotifications.createForegroundNotification(
             this,
-            if (isProxyPerAppMode) "Pingtunnel Proxy per app" else "BRAVE VPN",
+            if (isProxyPerAppMode) "Pingtunnel Proxy per app" else "7 G",
             "Connected to $serverHost",
             disconnectIntent,
             restoreIntent
