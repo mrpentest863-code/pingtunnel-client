@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 
-enum TunnelMode { proxy, vpn, proxyPerApp }
+enum TunnelMode { proxy, vpn, proxyPerApp, requestTunnel }
 
 // Clé secrète servant à dériver la clé AES-256 (via SHA-256).
 const String _secretKey = ".........................................................";
@@ -42,6 +42,7 @@ class TunnelConfig {
     this.tunDevice,
     this.dns,
     this.proxyPerAppPackages = const <String>[],
+    this.customPayload,
   });
 
   final String serverHost;
@@ -58,6 +59,7 @@ class TunnelConfig {
   final String? tunDevice;
   final String? dns;
   final List<String> proxyPerAppPackages;
+  final String? customPayload;
 
   TunnelConfig copyWith({
     String? serverHost,
@@ -74,6 +76,7 @@ class TunnelConfig {
     Object? tunDevice = _unset,
     Object? dns = _unset,
     List<String>? proxyPerAppPackages,
+    Object? customPayload = _unset,
   }) {
     return TunnelConfig(
       serverHost: serverHost ?? this.serverHost,
@@ -102,6 +105,9 @@ class TunnelConfig {
       proxyPerAppPackages: proxyPerAppPackages != null
           ? List<String>.from(proxyPerAppPackages)
           : this.proxyPerAppPackages,
+      customPayload: identical(customPayload, _unset)
+          ? this.customPayload
+          : customPayload as String?,
     );
   }
 
@@ -135,6 +141,7 @@ class TunnelConfig {
         TunnelMode.proxy => 'proxy',
         TunnelMode.vpn => 'vpn',
         TunnelMode.proxyPerApp => 'proxy_per_app',
+        TunnelMode.requestTunnel => 'request_tunnel',
       },
       'encryptMode': encryptMode,
       'encryptKey': encryptKey,
@@ -142,6 +149,7 @@ class TunnelConfig {
       'tunDevice': tunDevice,
       'dns': dns,
       'proxyPerAppPackages': proxyPerAppPackages,
+      'customPayload': customPayload,
     };
   }
 
@@ -228,6 +236,7 @@ class TunnelConfig {
     final mode = switch (modeStr) {
       'vpn' => TunnelMode.vpn,
       'proxy_per_app' => TunnelMode.proxyPerApp,
+      'request_tunnel' => TunnelMode.requestTunnel,
       'proxy' => TunnelMode.proxy,
       _ => throw FormatException('fromMap: invalid mode "$modeStr"'),
     };
@@ -261,6 +270,7 @@ class TunnelConfig {
       tunDevice: map['tunDevice'] as String?,
       dns: map['dns'] as String?,
       proxyPerAppPackages: packages,
+      customPayload: map['customPayload'] as String?,
     );
   }
 
@@ -353,6 +363,8 @@ class TunnelConfig {
       'app' ||
       'app_proxy' =>
         TunnelMode.proxyPerApp,
+      'request_tunnel' || 'request' || 'http' || 'rt' =>
+        TunnelMode.requestTunnel,
       'proxy' || '0' || '' => TunnelMode.proxy,
       _ => throw FormatException('Invalid mode: "$modeValue"'),
     };
@@ -388,9 +400,13 @@ class TunnelConfig {
 
     final encryptKey =
         params['encrypt-key'] ?? params['encrypt_key'] ?? params['encryptKey'];
+    final customPayload = params['payload'];
 
+    // requestTunnel : pas besoin de key/user-pass dans l'URI,
+    // mais on laisse les autres modes valider comme avant.
     if (encryptMode == null &&
         key == null &&
+        mode != TunnelMode.requestTunnel &&
         (username == null ||
             username.isEmpty ||
             password == null ||
@@ -416,6 +432,7 @@ class TunnelConfig {
       tunDevice: params['tun'] ?? params['tun_device'],
       dns: params['dns'],
       proxyPerAppPackages: proxyPerAppPackages,
+      customPayload: customPayload,
     );
   }
 }
