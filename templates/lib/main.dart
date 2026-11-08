@@ -22,7 +22,6 @@ const _buildGitSha = String.fromEnvironment('GIT_SHA', defaultValue: 'local');
 String _shortGitSha(String value) => value.length <= 8 ? value : value.substring(0, 8);
 String get _buildLabel => 'v$_buildVersionName+$_buildVersionCode (${_shortGitSha(_buildGitSha)})';
 
-// Phrase secrète pour ouvrir le formulaire de création manuelle
 const String _secretPhrase = "localhost";
 
 Future<String> getDeviceHwid() async {
@@ -31,24 +30,14 @@ Future<String> getDeviceHwid() async {
 
   try {
     if (Platform.isAndroid) {
-      // ANDROID_ID réel (Settings.Secure.ANDROID_ID) via le paquet dédié.
-      // NB : device_info_plus ne fournit plus androidId fiable, et son
-      // champ `id` correspond à Build.ID (identifiant de firmware, PAS
-      // unique par appareil).
       final aid = await const AndroidId().getId();
       if (aid != null && aid.isNotEmpty) parts.add('aid:$aid');
-
-      // Complément : fingerprint + modèle pour désambiguïser les clones.
       final android = await deviceInfo.androidInfo;
-      if (android.fingerprint.isNotEmpty) {
-        parts.add('fp:${android.fingerprint}');
-      }
+      if (android.fingerprint.isNotEmpty) parts.add('fp:${android.fingerprint}');
       if (android.model.isNotEmpty) parts.add('mo:${android.model}');
     } else if (Platform.isIOS) {
       final ios = await deviceInfo.iosInfo;
-      if (ios.identifierForVendor != null) {
-        parts.add('idfv:${ios.identifierForVendor}');
-      }
+      if (ios.identifierForVendor != null) parts.add('idfv:${ios.identifierForVendor}');
     } else if (Platform.isLinux) {
       try {
         parts.add('mid:${File('/etc/machine-id').readAsStringSync().trim()}');
@@ -65,15 +54,12 @@ Future<String> getDeviceHwid() async {
     }
   } catch (_) {}
 
-  // Si AUCUN identifiant matériel n'a pu être lu → UUID persistant unique
-  // (garantit l'unicité par appareil même si toute lecture échoue).
   if (parts.isEmpty) {
     final prefs = await SharedPreferences.getInstance();
     var fallback = prefs.getString('hwid_fallback');
     if (fallback == null) {
       final rnd = Random.secure();
-      fallback =
-          List.generate(32, (_) => rnd.nextInt(16).toRadixString(16)).join();
+      fallback = List.generate(32, (_) => rnd.nextInt(16).toRadixString(16)).join();
       await prefs.setString('hwid_fallback', fallback);
     }
     parts.add('fb:$fallback');
@@ -235,11 +221,14 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     final active = _activeEntry();
     final selected = _selectedEntry();
     final target = active ?? selected;
-    final mode = target?.config.mode == TunnelMode.vpn || target?.config.mode == TunnelMode.proxyPerApp
+    // requestTunnel = VPN complet, donc traité comme 'vpn' dans la tray
+    final mode = target?.config.mode == TunnelMode.vpn ||
+            target?.config.mode == TunnelMode.proxyPerApp ||
+            target?.config.mode == TunnelMode.requestTunnel
         ? 'vpn'
         : target?.config.mode == TunnelMode.proxy
-        ? 'proxy'
-        : 'none';
+            ? 'proxy'
+            : 'none';
     try {
       await _linuxTrayChannel.invokeMethod<void>('updateState', {
         'connected': _activeId != null,
@@ -781,6 +770,7 @@ class _ConnectionTile extends StatelessWidget {
       TunnelMode.proxy => 'Proxy',
       TunnelMode.vpn => 'VPN',
       TunnelMode.proxyPerApp => 'Proxy per app (${entry.config.proxyPerAppPackages.length})',
+      TunnelMode.requestTunnel => 'Request tunnel',   // ← AJOUT
     };
     final subtitle = '$modeText  •  Local ${entry.config.localSocksPort}';
     return Card(
@@ -856,10 +846,10 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   late final TextEditingController _hwidController;
   late final TextEditingController _localPortController;
   late final TextEditingController _encryptKeyController;
+  late final TextEditingController _payloadController;   // ← AJOUT
   late TunnelMode _mode;
   late String _encryptMode;
   late List<String> _proxyPerAppPackages;
-  bool _loadingProxyPerAppApps = false;
 
   @override
   void initState() {
@@ -874,6 +864,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController = TextEditingController(text: _entry.config.hwid ?? '');
     _localPortController = TextEditingController(text: _entry.config.localSocksPort.toString());
     _encryptKeyController = TextEditingController(text: _entry.config.encryptKey ?? '');
+    _payloadController = TextEditingController(text: _entry.config.customPayload ?? '');   // ← AJOUT
     _encryptMode = _entry.config.encryptMode ?? 'none';
     _proxyPerAppPackages = [..._entry.config.proxyPerAppPackages]..sort();
     _hostController.addListener(_markDirty);
@@ -883,6 +874,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController.addListener(_markDirty);
     _localPortController.addListener(_markDirty);
     _encryptKeyController.addListener(_markDirty);
+    _payloadController.addListener(_markDirty);   // ← AJOUT
     _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) { if (mounted) setState(() {}); });
   }
 
@@ -896,6 +888,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController.dispose();
     _localPortController.dispose();
     _encryptKeyController.dispose();
+    _payloadController.dispose();   // ← AJOUT
     super.dispose();
   }
 
@@ -905,6 +898,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   }
 
   bool get _isProxyPerAppMode => _mode == TunnelMode.proxyPerApp;
+  bool get _isRequestTunnelMode => _mode == TunnelMode.requestTunnel;   // ← AJOUT
 
   Future<bool> _applyEditsIfNeeded({bool showMessage = false}) async {
     if (widget.locked) return true;
@@ -971,6 +965,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _showMessage('URI copie');
   }
 
+  // ← MODIFIÉ : prise en compte du mode requestTunnel
   TunnelConfig? _buildConfigFromFields() {
     final host = _hostController.text.trim();
     final keyText = _keyController.text.trim();
@@ -979,24 +974,47 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     final password = _passwordController.text.trim();
     final hwid = _hwidController.text.trim();
     final localPort = int.tryParse(_localPortController.text.trim());
-    final encryptMode = _encryptMode == 'none' ? null : _encryptMode;
-    final encryptKey = _encryptKeyController.text.trim().isEmpty ? null : _encryptKeyController.text.trim();
+    final customPayload = _payloadController.text.trim().isEmpty
+        ? null
+        : _payloadController.text.trim();
+
     if (host.isEmpty || localPort == null) return null;
-    if (_encryptMode == 'none' && key == null && (username.isEmpty || password.isEmpty)) return null;
-    if (_encryptMode != 'none' && encryptKey == null) return null;
+
+    final isRT = _isRequestTunnelMode;
+    // En requestTunnel, on n'utilise pas les modes AES de bout en bout
+    final effectiveEncryptMode = isRT
+        ? null
+        : (_encryptMode == 'none' ? null : _encryptMode);
+    final effectiveEncryptKey = isRT
+        ? null
+        : (_encryptKeyController.text.trim().isEmpty
+            ? null
+            : _encryptKeyController.text.trim());
+
+    if (isRT) {
+      // Request tunnel : key OU user/pass obligatoire
+      if (key == null && (username.isEmpty || password.isEmpty)) return null;
+    } else {
+      if (_encryptMode == 'none' &&
+          key == null &&
+          (username.isEmpty || password.isEmpty)) return null;
+      if (_encryptMode != 'none' && effectiveEncryptKey == null) return null;
+    }
     if (_isProxyPerAppMode && _proxyPerAppPackages.isEmpty) return null;
+
     return TunnelConfig(
       serverHost: host,
       serverPort: null,
       localSocksPort: localPort,
-      key: _encryptMode == 'none' ? key : null,
+      key: effectiveEncryptMode == null ? key : null,
       username: username.isEmpty ? null : username,
       password: password.isEmpty ? null : password,
       hwid: hwid.isEmpty ? null : hwid,
       mode: _mode,
-      encryptMode: encryptMode,
-      encryptKey: encryptKey,
+      encryptMode: effectiveEncryptMode,
+      encryptKey: effectiveEncryptKey,
       proxyPerAppPackages: [..._proxyPerAppPackages]..sort(),
+      customPayload: customPayload,
     );
   }
 
@@ -1028,6 +1046,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
             hwidController: _hwidController,
             localPortController: _localPortController,
             encryptKeyController: _encryptKeyController,
+            payloadController: _payloadController,   // ← AJOUT
             mode: _mode,
             onModeChanged: (value) { if (_isActive) return; setState(() { _mode = value; _dirty = true; }); },
             encryptMode: _encryptMode,
@@ -1105,8 +1124,25 @@ class _StatusCard extends StatelessWidget {
   }
 }
 
+// ← MODIFIÉ : ajout payloadController + dropdown item + champ payload + cache encrypt
 class _DetailsFormCard extends StatelessWidget {
-  const _DetailsFormCard({required this.formKey, required this.hostController, required this.keyController, required this.usernameController, required this.passwordController, required this.hwidController, required this.localPortController, required this.encryptKeyController, required this.mode, required this.onModeChanged, required this.encryptMode, required this.onEncryptModeChanged, required this.readOnly, required this.onSave});
+  const _DetailsFormCard({
+    required this.formKey,
+    required this.hostController,
+    required this.keyController,
+    required this.usernameController,
+    required this.passwordController,
+    required this.hwidController,
+    required this.localPortController,
+    required this.encryptKeyController,
+    required this.payloadController,   // ← AJOUT
+    required this.mode,
+    required this.onModeChanged,
+    required this.encryptMode,
+    required this.onEncryptModeChanged,
+    required this.readOnly,
+    required this.onSave,
+  });
   final GlobalKey<FormState> formKey;
   final TextEditingController hostController;
   final TextEditingController keyController;
@@ -1115,6 +1151,7 @@ class _DetailsFormCard extends StatelessWidget {
   final TextEditingController hwidController;
   final TextEditingController localPortController;
   final TextEditingController encryptKeyController;
+  final TextEditingController payloadController;   // ← AJOUT
   final TunnelMode mode;
   final ValueChanged<TunnelMode> onModeChanged;
   final String encryptMode;
@@ -1124,6 +1161,7 @@ class _DetailsFormCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isRT = mode == TunnelMode.requestTunnel;   // ← AJOUT
     return Card(child: Padding(padding: const EdgeInsets.all(16), child: Form(key: formKey, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [Text('Details', style: Theme.of(context).textTheme.titleMedium), const Spacer(), FilledButton(onPressed: readOnly ? null : onSave, child: const Text('Save'))]),
       if (readOnly) ...[const SizedBox(height: 6), Text('Disconnect to edit', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)))],
@@ -1134,16 +1172,32 @@ class _DetailsFormCard extends StatelessWidget {
         DropdownMenuItem(value: TunnelMode.proxy, child: Text('Proxy')),
         DropdownMenuItem(value: TunnelMode.vpn, child: Text('VPN')),
         DropdownMenuItem(value: TunnelMode.proxyPerApp, child: Text('Proxy per app')),
+        DropdownMenuItem(value: TunnelMode.requestTunnel, child: Text('Request tunnel (VPN)')),   // ← AJOUT
       ], onChanged: readOnly ? null : (v) => onModeChanged(v!)),
+      // ← NOUVEAU : champ payload visible uniquement en requestTunnel
+      if (isRT) ...[
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: payloadController,
+          enabled: !readOnly,
+          maxLines: 6,
+          keyboardType: TextInputType.multiline,
+          decoration: const InputDecoration(
+            labelText: 'Custom payload (HTTP CONNECT)',
+            hintText: 'CONNECT cdn.example.com:443 HTTP/1.1\nHost: cdn.example.com\n\n',
+            alignLabelWithHint: true,
+          ),
+        ),
+      ],
       const SizedBox(height: 12),
-      TextFormField(controller: usernameController, enabled: !readOnly && encryptMode == 'none', decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person)), validator: (v) {
-        if (encryptMode != 'none') return null;
+      TextFormField(controller: usernameController, enabled: !readOnly && (isRT || encryptMode == 'none'), decoration: const InputDecoration(labelText: 'Username', prefixIcon: Icon(Icons.person)), validator: (v) {
+        if (!isRT && encryptMode != 'none') return null;
         if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Username or key required';
         return null;
       }),
       const SizedBox(height: 12),
-      TextFormField(controller: passwordController, enabled: !readOnly && encryptMode == 'none', obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock)), validator: (v) {
-        if (encryptMode != 'none') return null;
+      TextFormField(controller: passwordController, enabled: !readOnly && (isRT || encryptMode == 'none'), obscureText: true, decoration: const InputDecoration(labelText: 'Password', prefixIcon: Icon(Icons.lock)), validator: (v) {
+        if (!isRT && encryptMode != 'none') return null;
         if (v!.trim().isEmpty && keyController.text.trim().isEmpty) return 'Password or key required';
         return null;
       }),
@@ -1155,23 +1209,26 @@ class _DetailsFormCard extends StatelessWidget {
         return ListTile(leading: Icon(Icons.info, color: Theme.of(context).colorScheme.primary), title: Text('HWID de cet appareil'), subtitle: SelectableText(hwid), trailing: IconButton(icon: Icon(Icons.copy), onPressed: () { Clipboard.setData(ClipboardData(text: hwid)); ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('HWID copié'))); }));
       })),
       const SizedBox(height: 12),
-      TextFormField(controller: keyController, enabled: !readOnly && encryptMode == 'none', keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Key (legacy)'), validator: (v) {
-        if (encryptMode != 'none') return null;
+      TextFormField(controller: keyController, enabled: !readOnly && (isRT || encryptMode == 'none'), keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Key (legacy)'), validator: (v) {
+        if (!isRT && encryptMode != 'none') return null;
         if (v!.trim().isEmpty && usernameController.text.trim().isEmpty && passwordController.text.trim().isEmpty) return 'Key or username/password required';
         return null;
       }),
-      const SizedBox(height: 12),
-      DropdownButtonFormField<String>(initialValue: encryptMode, decoration: const InputDecoration(labelText: 'Encryption'), items: const [
-        DropdownMenuItem(value: 'none', child: Text('None')),
-        DropdownMenuItem(value: 'aes128', child: Text('AES-128')),
-        DropdownMenuItem(value: 'aes256', child: Text('AES-256')),
-        DropdownMenuItem(value: 'chacha20', child: Text('ChaCha20')),
-      ], onChanged: readOnly ? null : (v) => onEncryptModeChanged(v!)),
-      const SizedBox(height: 12),
-      TextFormField(controller: encryptKeyController, enabled: !readOnly && encryptMode != 'none', decoration: const InputDecoration(labelText: 'Encryption key'), validator: (v) {
-        if (encryptMode != 'none' && v!.trim().isEmpty) return 'Encryption key required';
-        return null;
-      }),
+      // ← Les champs encrypt sont cachés en requestTunnel
+      if (!isRT) ...[
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(initialValue: encryptMode, decoration: const InputDecoration(labelText: 'Encryption'), items: const [
+          DropdownMenuItem(value: 'none', child: Text('None')),
+          DropdownMenuItem(value: 'aes128', child: Text('AES-128')),
+          DropdownMenuItem(value: 'aes256', child: Text('AES-256')),
+          DropdownMenuItem(value: 'chacha20', child: Text('ChaCha20')),
+        ], onChanged: readOnly ? null : (v) => onEncryptModeChanged(v!)),
+        const SizedBox(height: 12),
+        TextFormField(controller: encryptKeyController, enabled: !readOnly && encryptMode != 'none', decoration: const InputDecoration(labelText: 'Encryption key'), validator: (v) {
+          if (encryptMode != 'none' && v!.trim().isEmpty) return 'Encryption key required';
+          return null;
+        }),
+      ],
       const SizedBox(height: 12),
       TextFormField(controller: localPortController, enabled: !readOnly, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Local port'), validator: (v) {
         final p = int.tryParse(v!.trim());
