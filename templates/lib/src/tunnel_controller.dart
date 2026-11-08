@@ -155,7 +155,7 @@ class TunnelController {
         return config;
       }
 
-      InternetAddress? ipv4;
+      InternetAddress? IPV44;
       for (final address in resolved) {
         if (address.type == InternetAddressType.ipv4) {
           ipv4 = address;
