@@ -155,19 +155,19 @@ class TunnelController {
         return config;
       }
 
-      InternetAddress? IPV44;
+      InternetAddress? ipv4Address;
       for (final address in resolved) {
-        if (address.type == InternetAddressType.ipv4) {
-          ipv4 = address;
+        if (address.type == InternetAddressType.IPv4) {
+          ipv4Address = address;
           break;
         }
       }
-      if (ipv4 == null) {
+      if (ipv4Address == null) {
         logBuffer.add('[dns] No IPv4 address for $host, using hostname');
         return config;
       }
 
-      final resolvedHost = ipv4.address;
+      final resolvedHost = ipv4Address.address;
       logBuffer.add('[dns] Resolved $host -> $resolvedHost');
       return config.copyWith(serverHost: resolvedHost);
     } catch (err) {
