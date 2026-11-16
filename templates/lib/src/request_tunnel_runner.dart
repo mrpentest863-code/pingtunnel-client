@@ -69,11 +69,32 @@ class RequestTunnelRunner {
       if (nMethods > 0) await reader.readN(nMethods);
       client.add([0x05, 0x00]); // no-auth accepté côté local
 
-      // ───── 2. SOCKS5 CONNECT depuis tun2socks ─────
+      // ───── 2. SOCKS5 request depuis tun2socks ─────
       final req = await reader.readN(4);
-      if (req[0] != 0x05 || req[1] != 0x01) {
-        throw Exception('Only SOCKS5 CONNECT supported');
+      if (req[0] != 0x05) {
+        throw Exception('Not SOCKS5 (version ${req[0]})');
       }
+
+      // UDP ASSOCIATE (0x03) : utilisé par le DNS (port 53 UDP).
+      // On ne le supporte pas — on refuse proprement (cmd 0x07 = unsupported)
+      // et on ferme la connexion SANS crasher.
+      if (req[1] == 0x03) {
+        logBuffer.add('[requestTunnel] UDP ignoré (DNS non supporté)');
+        try {
+          client.add([0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+          client.destroy();
+        } catch (_) {}
+        return;
+      }
+
+      // BIND (0x02) ou autre commande non gérée
+      if (req[1] != 0x01) {
+        throw Exception(
+          'Unsupported SOCKS5 cmd 0x${req[1].toRadixString(16)}',
+        );
+      }
+
+      // ───── 3. Lecture de l'adresse cible ─────
       final atyp = req[3];
       String targetHost;
       if (atyp == 0x01) {
@@ -94,7 +115,7 @@ class RequestTunnelRunner {
       final portB = await reader.readN(2);
       final targetPort = (portB[0] << 8) | portB[1];
 
-      // ───── 3. Connexion TCP vers serveur (80/8080) ─────
+      // ───── 4. Connexion TCP vers serveur (80/8080) ─────
       final tryPorts = <int>[
         if (config.serverPort != null) config.serverPort!,
         if (config.serverPort == null) ...[80, 8080],
@@ -129,7 +150,7 @@ class RequestTunnelRunner {
         'for $targetHost:$targetPort',
       );
 
-      // ───── 4. Envoi du payload HTTP CONNECT ─────
+      // ───── 5. Envoi du payload HTTP CONNECT ─────
       var payload = (config.customPayload?.isNotEmpty ?? false)
           ? config.customPayload!
           : _defaultPayload;
@@ -145,7 +166,7 @@ class RequestTunnelRunner {
         );
       }
 
-      // ───── 5. SOCKS5 auth vers le serveur ─────
+      // ───── 6. SOCKS5 auth vers le serveur ─────
       String? user;
       String? pass;
       if (config.key != null) {
@@ -173,7 +194,7 @@ class RequestTunnelRunner {
         if (hr[1] != 0x00) throw Exception('Server requires auth');
       }
 
-      // ───── 6. SOCKS5 CONNECT vers target réel ─────
+      // ───── 7. SOCKS5 CONNECT vers target réel ─────
       final tB = utf8.encode(targetHost);
       remote.add([
         0x05,
@@ -199,10 +220,10 @@ class RequestTunnelRunner {
         await remoteReader.readN(18);
       }
 
-      // ───── 7. Succès → réponse à tun2socks ─────
+      // ───── 8. Succès → réponse à tun2socks ─────
       client.add([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
 
-      // ───── 8. Bridge bidirectionnel ─────
+      // ───── 9. Bridge bidirectionnel ─────
       await Future.wait([
         reader.drainTo(remote),
         remoteReader.drainTo(client),
