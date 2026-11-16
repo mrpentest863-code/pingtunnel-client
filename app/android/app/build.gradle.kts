@@ -1,4 +1,5 @@
 import org.gradle.api.GradleException
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.util.Properties
 
@@ -41,9 +42,8 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_17.toString()
-    }
+    // kotlinOptions supprimé — remplacé par le bloc `kotlin { compilerOptions { ... } }`
+    // en bas du fichier (obligatoire avec AGP 9.x).
 
     defaultConfig {
         // Unique Android package ID for this app.
@@ -92,4 +92,11 @@ android {
 
 flutter {
     source = "../.."
+}
+
+// Migration obligatoire pour AGP 9.x — remplace l'ancien `kotlinOptions { jvmTarget = ... }`
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
+    }
 }
