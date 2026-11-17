@@ -19,14 +19,13 @@ class RequestTunnelRunner {
   final LogBuffer logBuffer;
   ServerSocket? _server;
   int? _workingServerPort;
-  final List<Socket> _active = [];
+  final Set<Socket> _active = {};
   bool _running = false;
 
   bool get isRunning => _running;
 
   Future<void> start(TunnelConfig config) async {
     if (_running) await stop();
-
     _server = await ServerSocket.bind(
       InternetAddress.loopbackIPv4,
       config.localSocksPort,
@@ -35,17 +34,24 @@ class RequestTunnelRunner {
     logBuffer.add(
       '[requestTunnel] SOCKS5 listening on 127.0.0.1:${config.localSocksPort}',
     );
-
-    _server!.listen((socket) {
-      _active.add(socket);
-      _handleClient(socket, config);
-    });
+    _server!.listen(
+      (socket) {
+        _active.add(socket);
+        // Évite les erreurs asynchrones non gérées (broken pipe, reset...)
+        socket.done.catchError((_) {});
+        try {
+          socket.setOption(SocketOption.tcpNoDelay, true);
+        } catch (_) {}
+        _handleClient(socket, config);
+      },
+      onError: (Object e) => logBuffer.add('[requestTunnel] Server error: $e'),
+    );
   }
 
   Future<void> stop() async {
     _running = false;
     _workingServerPort = null;
-    for (final s in _active) {
+    for (final s in _active.toList()) {
       try {
         s.destroy();
       } catch (_) {}
@@ -60,53 +66,37 @@ class RequestTunnelRunner {
 
   Future<void> _handleClient(Socket client, TunnelConfig config) async {
     Socket? remote;
+    var replied = false; // true une fois la réponse SOCKS5 finale envoyée
     final reader = _Reader(client);
     try {
-      // ───── 1. SOCKS5 greeting depuis tun2socks ─────
-      final greeting = await reader.readN(2);
+      // 1. SOCKS5 greeting
+      final greeting = await reader.readN(2).timeout(const Duration(seconds: 15));
       if (greeting[0] != 0x05) throw Exception('Not SOCKS5');
       final nMethods = greeting[1];
       if (nMethods > 0) await reader.readN(nMethods);
-      client.add([0x05, 0x00]); // no-auth accepté côté local
+      client.add([0x05, 0x00]);
 
-      // ───── 2. SOCKS5 request depuis tun2socks ─────
+      // 2. SOCKS5 request
       final req = await reader.readN(4);
-      if (req[0] != 0x05) {
-        throw Exception('Not SOCKS5 (version ${req[0]})');
-      }
-
-      // UDP ASSOCIATE (0x03) : utilisé par le DNS (port 53 UDP).
-      // On ne le supporte pas — on refuse proprement (cmd 0x07 = unsupported)
-      // et on ferme la connexion SANS crasher.
-      if (req[1] == 0x03) {
-        logBuffer.add('[requestTunnel] UDP ignoré (DNS non supporté)');
-        try {
-          client.add([0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
-          client.destroy();
-        } catch (_) {}
-        return;
-      }
-
-      // BIND (0x02) ou autre commande non gérée
-      if (req[1] != 0x01) {
-        throw Exception(
-          'Unsupported SOCKS5 cmd 0x${req[1].toRadixString(16)}',
-        );
-      }
-
-      // ───── 3. Lecture de l'adresse cible ─────
+      if (req[0] != 0x05) throw Exception('Not SOCKS5 (v${req[0]})');
+      final cmd = req[1];
       final atyp = req[3];
+
+      // 3. adresse cible (lue pour TOUTES les commandes afin de garder le flux cohérent)
       String targetHost;
+      Uint8List targetRaw;
       if (atyp == 0x01) {
-        targetHost = (await reader.readN(4)).join('.');
+        targetRaw = await reader.readN(4);
+        targetHost = targetRaw.join('.');
       } else if (atyp == 0x03) {
         final len = (await reader.readN(1))[0];
-        targetHost = String.fromCharCodes(await reader.readN(len));
+        targetRaw = await reader.readN(len);
+        targetHost = String.fromCharCodes(targetRaw);
       } else if (atyp == 0x04) {
-        final b = await reader.readN(16);
+        targetRaw = await reader.readN(16);
         final parts = <String>[];
         for (var i = 0; i < 16; i += 2) {
-          parts.add(((b[i] << 8) | b[i + 1]).toRadixString(16));
+          parts.add(((targetRaw[i] << 8) | targetRaw[i + 1]).toRadixString(16));
         }
         targetHost = parts.join(':');
       } else {
@@ -115,16 +105,32 @@ class RequestTunnelRunner {
       final portB = await reader.readN(2);
       final targetPort = (portB[0] << 8) | portB[1];
 
-      // ───── 4. Connexion TCP vers serveur (80/8080) ─────
+      // UDP ASSOCIATE : succès simulé, paquets ignorés, socket gardée ouverte.
+      if (cmd == 0x03) {
+        client.add([0x05, 0x00, 0x00, 0x01, 0x7F, 0, 0, 1, 0, 1]);
+        replied = true;
+        logBuffer.add('[requestTunnel] UDP associé mais ignoré (DNS)');
+        await reader.discard(); // lit et jette jusqu'à fermeture
+        return;
+      }
+
+      if (cmd != 0x01) {
+        // 0x07 = command not supported
+        client.add([0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+        replied = true;
+        throw Exception('Unsupported cmd 0x${cmd.toRadixString(16)}');
+      }
+
+      // 4. TCP vers serveur
       final tryPorts = <int>[
         if (config.serverPort != null) config.serverPort!,
         if (config.serverPort == null) ...[80, 8080],
       ];
-      if (_workingServerPort != null) {
-        tryPorts.remove(_workingServerPort);
-        tryPorts.insert(0, _workingServerPort!);
+      final wp = _workingServerPort;
+      if (wp != null) {
+        tryPorts.remove(wp);
+        tryPorts.insert(0, wp);
       }
-
       for (final p in tryPorts) {
         try {
           remote = await Socket.connect(
@@ -135,38 +141,43 @@ class RequestTunnelRunner {
           _workingServerPort = p;
           break;
         } catch (_) {
-          try {
-            remote?.destroy();
-          } catch (_) {}
           remote = null;
         }
       }
       if (remote == null) {
-        throw Exception('Cannot reach ${config.serverHost} on 80/8080');
+        throw Exception(
+            'Cannot reach ${config.serverHost} on ${tryPorts.join('/')}');
       }
-      final remoteReader = _Reader(remote);
+      final rs = remote; // non-null
+      _active.add(rs);
+      rs.done.catchError((_) {});
+      try {
+        rs.setOption(SocketOption.tcpNoDelay, true);
+      } catch (_) {}
+      final remoteReader = _Reader(rs);
       logBuffer.add(
-        '[requestTunnel] ${config.serverHost}:$_workingServerPort '
-        'for $targetHost:$targetPort',
+        '[requestTunnel] ${config.serverHost}:$_workingServerPort for $targetHost:$targetPort',
       );
 
-      // ───── 5. Envoi du payload HTTP CONNECT ─────
+      // 5. payload HTTP CONNECT
       var payload = (config.customPayload?.isNotEmpty ?? false)
           ? config.customPayload!
           : _defaultPayload;
       payload = payload.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n');
-      remote.add(utf8.encode(payload));
-
+      if (!payload.endsWith('\r\n\r\n')) {
+        payload = payload.endsWith('\r\n') ? '$payload\r\n' : '$payload\r\n\r\n';
+      }
+      rs.add(utf8.encode(payload));
       final httpReply = await remoteReader
           .readUntil('\r\n\r\n')
           .timeout(const Duration(seconds: 10));
-      if (!httpReply.contains('200')) {
-        throw Exception(
-          'HTTP CONNECT failed: ${httpReply.split('\r\n').first}',
-        );
+      final statusLine = httpReply.split('\r\n').first;
+      final statusParts = statusLine.split(' ');
+      if (statusParts.length < 2 || statusParts[1] != '200') {
+        throw Exception('HTTP CONNECT failed: $statusLine');
       }
 
-      // ───── 6. SOCKS5 auth vers le serveur ─────
+      // 6. auth SOCKS5
       String? user;
       String? pass;
       if (config.key != null) {
@@ -177,40 +188,36 @@ class RequestTunnelRunner {
         pass = config.password;
       }
 
+      const t = Duration(seconds: 10);
       if (user != null && pass != null) {
-        remote.add([0x05, 0x01, 0x02]); // user/pass
-        final hr = await remoteReader.readN(2);
-        if (hr[1] != 0x02) {
-          throw Exception('Server rejected user/pass method');
-        }
+        rs.add([0x05, 0x01, 0x02]);
+        final hr = await remoteReader.readN(2).timeout(t);
+        if (hr[1] != 0x02) throw Exception('Server rejected user/pass method');
         final uB = utf8.encode(user);
         final pB = utf8.encode(pass);
-        remote.add([0x01, uB.length, ...uB, pB.length, ...pB]);
-        final ar = await remoteReader.readN(2);
+        if (uB.length > 255 || pB.length > 255) {
+          throw Exception('Username/password too long');
+        }
+        rs.add([0x01, uB.length, ...uB, pB.length, ...pB]);
+        final ar = await remoteReader.readN(2).timeout(t);
         if (ar[1] != 0x00) throw Exception('SOCKS5 auth refused');
       } else {
-        remote.add([0x05, 0x01, 0x00]); // no auth
-        final hr = await remoteReader.readN(2);
+        rs.add([0x05, 0x01, 0x00]);
+        final hr = await remoteReader.readN(2).timeout(t);
         if (hr[1] != 0x00) throw Exception('Server requires auth');
       }
 
-      // ───── 7. SOCKS5 CONNECT vers target réel ─────
-      final tB = utf8.encode(targetHost);
-      remote.add([
-        0x05,
-        0x01,
-        0x00,
-        0x03,
-        tB.length,
-        ...tB,
-        (targetPort >> 8) & 0xFF,
-        targetPort & 0xFF,
+      // 7. CONNECT cible (on conserve le type d'adresse d'origine)
+      rs.add([
+        0x05, 0x01, 0x00, atyp,
+        if (atyp == 0x03) targetRaw.length,
+        ...targetRaw,
+        (targetPort >> 8) & 0xFF, targetPort & 0xFF,
       ]);
-      final cr = await remoteReader.readN(4);
+      final cr = await remoteReader.readN(4).timeout(t);
       if (cr[1] != 0x00) {
         throw Exception('SOCKS5 CONNECT refused (code ${cr[1]})');
       }
-      // consomme l'adresse liée
       if (cr[3] == 0x01) {
         await remoteReader.readN(6);
       } else if (cr[3] == 0x03) {
@@ -220,33 +227,43 @@ class RequestTunnelRunner {
         await remoteReader.readN(18);
       }
 
-      // ───── 8. Succès → réponse à tun2socks ─────
+      // 8. succès
       client.add([0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+      replied = true;
 
-      // ───── 9. Bridge bidirectionnel ─────
-      await Future.wait([
-        reader.drainTo(remote),
-        remoteReader.drainTo(client),
-      ]);
+      // 9. bridge : dès qu'un côté se ferme, on ferme l'autre
+      final done = Completer<void>();
+      void finish() {
+        if (!done.isCompleted) done.complete();
+      }
+
+      reader.drainTo(rs).catchError((_) {}).whenComplete(finish);
+      remoteReader.drainTo(client).catchError((_) {}).whenComplete(finish);
+      await done.future;
     } catch (e) {
       logBuffer.add('[requestTunnel] Error: $e');
-      try {
-        client.add([0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
-      } catch (_) {}
+      if (!replied) {
+        try {
+          client.add([0x05, 0x01, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+        } catch (_) {}
+      }
+    } finally {
+      _active.remove(client);
       try {
         client.destroy();
       } catch (_) {}
-      try {
-        remote?.destroy();
-      } catch (_) {}
-    } finally {
-      _active.remove(client);
+      if (remote != null) {
+        _active.remove(remote);
+        try {
+          remote.destroy();
+        } catch (_) {}
+      }
     }
   }
 }
 
 class _Reader {
-  _Reader(Socket s) : _it = StreamIterator(s);
+  _Reader(Socket s) : _it = StreamIterator<List<int>>(s);
   final StreamIterator<List<int>> _it;
   final List<int> _buf = [];
 
@@ -264,10 +281,11 @@ class _Reader {
     return out;
   }
 
-  Future<String> readUntil(String delim) async {
+  Future<String> readUntil(String delim, {int maxBytes = 64 * 1024}) async {
     final dBytes = utf8.encode(delim);
+    var from = 0;
     while (true) {
-      for (var i = 0; i <= _buf.length - dBytes.length; i++) {
+      for (var i = from; i <= _buf.length - dBytes.length; i++) {
         var ok = true;
         for (var j = 0; j < dBytes.length; j++) {
           if (_buf[i + j] != dBytes[j]) {
@@ -282,8 +300,20 @@ class _Reader {
           return s;
         }
       }
+      from = _buf.length - dBytes.length + 1;
+      if (from < 0) from = 0;
+      if (_buf.length > maxBytes) throw Exception('Header too large');
       await _fill();
     }
+  }
+
+  /// Lit et jette tout jusqu'à la fermeture (utilisé pour UDP ASSOCIATE).
+  /// On ne peut pas appeler socket.drain() : le flux est déjà écouté par l'itérateur.
+  Future<void> discard() async {
+    _buf.clear();
+    try {
+      while (await _it.moveNext()) {}
+    } catch (_) {}
   }
 
   Future<void> drainTo(Socket out) async {
