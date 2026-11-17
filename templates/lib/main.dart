@@ -221,7 +221,6 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
     final active = _activeEntry();
     final selected = _selectedEntry();
     final target = active ?? selected;
-    // requestTunnel = VPN complet, donc traité comme 'vpn' dans la tray
     final mode = target?.config.mode == TunnelMode.vpn ||
             target?.config.mode == TunnelMode.proxyPerApp ||
             target?.config.mode == TunnelMode.requestTunnel
@@ -248,6 +247,11 @@ class _ConnectionListPageState extends State<ConnectionListPage> with WindowList
 
   Future<void> _syncAndroidRuntimeState() async {
     if (!_isAndroid || _syncingAndroidStatus) return;
+    // ← FIX : ne pas auto-déconnecter en mode requestTunnel.
+    // Le VpnService peut sembler "arrêté" pendant son démarrage
+    // alors que le tunnel Dart est bien actif.
+    final activeCheck = _activeEntry();
+    if (activeCheck?.config.mode == TunnelMode.requestTunnel) return;
     _syncingAndroidStatus = true;
     try {
       final running = await _controller.isAndroidRunning();
@@ -770,7 +774,7 @@ class _ConnectionTile extends StatelessWidget {
       TunnelMode.proxy => 'Proxy',
       TunnelMode.vpn => 'VPN',
       TunnelMode.proxyPerApp => 'Proxy per app (${entry.config.proxyPerAppPackages.length})',
-      TunnelMode.requestTunnel => 'Request tunnel',   // ← AJOUT
+      TunnelMode.requestTunnel => 'Request tunnel',
     };
     final subtitle = '$modeText  •  Local ${entry.config.localSocksPort}';
     return Card(
@@ -846,7 +850,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   late final TextEditingController _hwidController;
   late final TextEditingController _localPortController;
   late final TextEditingController _encryptKeyController;
-  late final TextEditingController _payloadController;   // ← AJOUT
+  late final TextEditingController _payloadController;
   late TunnelMode _mode;
   late String _encryptMode;
   late List<String> _proxyPerAppPackages;
@@ -864,7 +868,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController = TextEditingController(text: _entry.config.hwid ?? '');
     _localPortController = TextEditingController(text: _entry.config.localSocksPort.toString());
     _encryptKeyController = TextEditingController(text: _entry.config.encryptKey ?? '');
-    _payloadController = TextEditingController(text: _entry.config.customPayload ?? '');   // ← AJOUT
+    _payloadController = TextEditingController(text: _entry.config.customPayload ?? '');
     _encryptMode = _entry.config.encryptMode ?? 'none';
     _proxyPerAppPackages = [..._entry.config.proxyPerAppPackages]..sort();
     _hostController.addListener(_markDirty);
@@ -874,7 +878,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController.addListener(_markDirty);
     _localPortController.addListener(_markDirty);
     _encryptKeyController.addListener(_markDirty);
-    _payloadController.addListener(_markDirty);   // ← AJOUT
+    _payloadController.addListener(_markDirty);
     _uiTimer = Timer.periodic(const Duration(milliseconds: 500), (_) { if (mounted) setState(() {}); });
   }
 
@@ -888,7 +892,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _hwidController.dispose();
     _localPortController.dispose();
     _encryptKeyController.dispose();
-    _payloadController.dispose();   // ← AJOUT
+    _payloadController.dispose();
     super.dispose();
   }
 
@@ -898,7 +902,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
   }
 
   bool get _isProxyPerAppMode => _mode == TunnelMode.proxyPerApp;
-  bool get _isRequestTunnelMode => _mode == TunnelMode.requestTunnel;   // ← AJOUT
+  bool get _isRequestTunnelMode => _mode == TunnelMode.requestTunnel;
 
   Future<bool> _applyEditsIfNeeded({bool showMessage = false}) async {
     if (widget.locked) return true;
@@ -965,7 +969,6 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     _showMessage('URI copie');
   }
 
-  // ← MODIFIÉ : prise en compte du mode requestTunnel
   TunnelConfig? _buildConfigFromFields() {
     final host = _hostController.text.trim();
     final keyText = _keyController.text.trim();
@@ -981,7 +984,6 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
     if (host.isEmpty || localPort == null) return null;
 
     final isRT = _isRequestTunnelMode;
-    // En requestTunnel, on n'utilise pas les modes AES de bout en bout
     final effectiveEncryptMode = isRT
         ? null
         : (_encryptMode == 'none' ? null : _encryptMode);
@@ -992,7 +994,6 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
             : _encryptKeyController.text.trim());
 
     if (isRT) {
-      // Request tunnel : key OU user/pass obligatoire
       if (key == null && (username.isEmpty || password.isEmpty)) return null;
     } else {
       if (_encryptMode == 'none' &&
@@ -1046,7 +1047,7 @@ class _ConnectionDetailPageState extends State<ConnectionDetailPage> {
             hwidController: _hwidController,
             localPortController: _localPortController,
             encryptKeyController: _encryptKeyController,
-            payloadController: _payloadController,   // ← AJOUT
+            payloadController: _payloadController,
             mode: _mode,
             onModeChanged: (value) { if (_isActive) return; setState(() { _mode = value; _dirty = true; }); },
             encryptMode: _encryptMode,
@@ -1124,7 +1125,6 @@ class _StatusCard extends StatelessWidget {
   }
 }
 
-// ← MODIFIÉ : ajout payloadController + dropdown item + champ payload + cache encrypt
 class _DetailsFormCard extends StatelessWidget {
   const _DetailsFormCard({
     required this.formKey,
@@ -1135,7 +1135,7 @@ class _DetailsFormCard extends StatelessWidget {
     required this.hwidController,
     required this.localPortController,
     required this.encryptKeyController,
-    required this.payloadController,   // ← AJOUT
+    required this.payloadController,
     required this.mode,
     required this.onModeChanged,
     required this.encryptMode,
@@ -1151,7 +1151,7 @@ class _DetailsFormCard extends StatelessWidget {
   final TextEditingController hwidController;
   final TextEditingController localPortController;
   final TextEditingController encryptKeyController;
-  final TextEditingController payloadController;   // ← AJOUT
+  final TextEditingController payloadController;
   final TunnelMode mode;
   final ValueChanged<TunnelMode> onModeChanged;
   final String encryptMode;
@@ -1161,7 +1161,7 @@ class _DetailsFormCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isRT = mode == TunnelMode.requestTunnel;   // ← AJOUT
+    final isRT = mode == TunnelMode.requestTunnel;
     return Card(child: Padding(padding: const EdgeInsets.all(16), child: Form(key: formKey, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [Text('Details', style: Theme.of(context).textTheme.titleMedium), const Spacer(), FilledButton(onPressed: readOnly ? null : onSave, child: const Text('Save'))]),
       if (readOnly) ...[const SizedBox(height: 6), Text('Disconnect to edit', style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6)))],
@@ -1172,9 +1172,8 @@ class _DetailsFormCard extends StatelessWidget {
         DropdownMenuItem(value: TunnelMode.proxy, child: Text('Proxy')),
         DropdownMenuItem(value: TunnelMode.vpn, child: Text('VPN')),
         DropdownMenuItem(value: TunnelMode.proxyPerApp, child: Text('Proxy per app')),
-        DropdownMenuItem(value: TunnelMode.requestTunnel, child: Text('Request tunnel (VPN)')),   // ← AJOUT
+        DropdownMenuItem(value: TunnelMode.requestTunnel, child: Text('Request tunnel (VPN)')),
       ], onChanged: readOnly ? null : (v) => onModeChanged(v!)),
-      // ← NOUVEAU : champ payload visible uniquement en requestTunnel
       if (isRT) ...[
         const SizedBox(height: 12),
         TextFormField(
@@ -1214,7 +1213,6 @@ class _DetailsFormCard extends StatelessWidget {
         if (v!.trim().isEmpty && usernameController.text.trim().isEmpty && passwordController.text.trim().isEmpty) return 'Key or username/password required';
         return null;
       }),
-      // ← Les champs encrypt sont cachés en requestTunnel
       if (!isRT) ...[
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(initialValue: encryptMode, decoration: const InputDecoration(labelText: 'Encryption'), items: const [
